@@ -1,0 +1,54 @@
+---------------------------------------------------------------------
+-- players.lua
+-- Authoritative player lifecycle (Birth-driven)
+---------------------------------------------------------------------
+env.info("TCS(PLAYERS): loading")
+
+PLAYERS = PLAYERS or {}
+PLAYERS.ByName = PLAYERS.ByName or {}
+
+function PLAYERS:GetOrCreate(event)
+  local pname = event.IniPlayerName
+  if not pname then return nil end
+
+  local rec = self.ByName[pname]
+  if rec then
+    rec.Unit  = event.IniUnit
+    rec.Group = event.IniGroup
+    rec.Coalition = event.IniCoalition
+    return rec
+  end
+
+  rec = {
+    Name = pname,
+    Unit = event.IniUnit,
+    Group = event.IniGroup,
+    Coalition = event.IniCoalition,
+    Menus = {},
+    ActiveModes = {},
+    Session = nil,
+  }
+
+  self.ByName[pname] = rec
+  env.info("Player record Created")
+
+  if TCS_MENU and TCS_MENU.BuildForPlayer then
+    SCHEDULER:New(nil, function()
+      if not rec.Unit or not rec.Unit:IsAlive() then return end
+      if not rec.Group or not rec.Group:IsAlive() then return end
+      TCS_MENU.BuildForPlayer(rec)
+    end, {}, 0.1)
+    env.info("Player Menus Created")
+  end
+  return rec
+end
+
+PLAYERS.Handler = EVENTHANDLER:New()
+PLAYERS.Handler:HandleEvent(EVENTS.Birth)
+
+function PLAYERS.Handler:OnEventBirth(event)
+  if not event.IniUnit or not event.IniPlayerName then return end
+  PLAYERS:GetOrCreate(event)
+end
+
+env.info("TCS(PLAYERS): ready")

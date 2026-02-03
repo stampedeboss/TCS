@@ -1,7 +1,11 @@
 -- TCS_awacs.lua (A2A)
 AWACS = nil
 
+-- Ensure we reference the correct config
+local function GetCfg() return TCS.A2A.Config end
+
 function SetupAwacs()
+  local CFG = GetCfg()
   local bull = ResolveBullseye()
   if not bull then
     MESSAGE:New("WARNING: No trigger zone named 'BULLSEYE'. Bullseye calls disabled until you add it.", 15)
@@ -24,6 +28,7 @@ end
 local function _say(text) if AWACS and text then AWACS:PlayText(text, 0) end end
 
 function AwacsDispatchNATO(group, playerUnit, targetCoord, descriptor, tail)
+  local CFG = GetCfg()
   if not group or not playerUnit or not playerUnit:IsAlive() or not targetCoord then return end
   local bull = NATO_BULLSEYE(targetCoord)
   local t = tail or "SURFACE"
@@ -33,6 +38,7 @@ function AwacsDispatchNATO(group, playerUnit, targetCoord, descriptor, tail)
 end
 
 function AwacsControllerCallBraa(group, playerUnit, refCoord, descriptor, braaText, brevity)
+  local CFG = GetCfg()
   if not group or not playerUnit or not playerUnit:IsAlive() or not refCoord then return end
   local bull = NATO_BULLSEYE(refCoord)
   local d = descriptor or "BANDIT"
@@ -44,6 +50,7 @@ function AwacsControllerCallBraa(group, playerUnit, refCoord, descriptor, braaTe
 end
 
 function StartAwacsUpdates(group, playerUnit, getTargetCoordFn, descriptor, tailMode)
+  local CFG = GetCfg()
   if not group or not playerUnit or not getTargetCoordFn then return end
   local endTime = timer.getTime() + (CFG.AWACS.UpdateTotal or 180)
   local interval = (CFG.AWACS.UpdateEvery or 30)
@@ -72,3 +79,16 @@ function StartAwacsUpdatesSession(sessionName, getTargetCoordFn, descriptor, tai
   end)
 end
 
+---------------------------------------------------------------------
+-- A2G AWACS Interface
+---------------------------------------------------------------------
+TCS = TCS or {}
+TCS.A2G = TCS.A2G or {}
+TCS.A2G.AWACS = {}
+
+function TCS.A2G.AWACS:AssignBAI(group, anchor, echelon)
+  local unit = group:GetUnit(1)
+  if unit and anchor then
+     AwacsDispatchNATO(group, unit, anchor, "BAI TASKING", "ENGAGE")
+  end
+end

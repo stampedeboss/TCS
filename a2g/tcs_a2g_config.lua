@@ -1,5 +1,8 @@
 -- TCS_a2g/a2g_config.lua
-A2G_CFG = {
+TCS = TCS or {}
+TCS.A2G = TCS.A2G or {}
+
+TCS.A2G.Config = {
   -- Common behavior
   LEAD_ONLY_STARTS = true,
 
@@ -36,6 +39,16 @@ A2G_CFG = {
     STRIKE_TARGET_PREFIX = "STRIKE TARGET-",
     MAR_SHIP_PREFIX      = "MAR-",
     SUW_GROUP_PREFIX     = "SUW-",
+  },
+
+  MAR = {
+    MOVE_DIST_NM = { MIN = 15, MAX = 30 },
+    SPEED_KTS    = { MIN = 10, MAX = 25 },
+  },
+
+  CAS = {
+    SEPARATION_NM = { MIN = 2, MAX = 4 },
+    SPEED_KPH     = { MIN = 20, MAX = 35 },
   },
 
 }

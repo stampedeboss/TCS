@@ -2,7 +2,11 @@
 -- CAP is relative to player. Spawns waves near a CAP center point.
 -- Controller is optional via CFG.CAP.CONTROLLER_ENABLED.
 
-CAP = {}
+local CFG = TCS.A2A.Config
+local A2A = TCS.A2A
+
+TCS.A2A.CAP = {}
+local CAP = TCS.A2A.CAP
 
 local function _aliveCount(list)
   return A2A.AliveAircraftCount(list)
@@ -61,35 +65,32 @@ function CAP:Start(rec, durationSec)
     end
 
     local desiredAircraft = math.random(CFG.CAP.WAVE_MIN_BANDITS, CFG.CAP.WAVE_MAX_BANDITS)
-local spawnedThisWave = {}
-local spawnedAircraft = 0
-local waveGroups = 0
+    local spawnedThisWave = {}
+    local spawnedAircraft = 0
+    local waveGroups = 0
 
-while spawnedAircraft < desiredAircraft do
-  if _aliveCount(self.Spawned) >= (CFG.CAP.MAX_ALIVE_BANDITS or 8) then break end
-  local templateName = A2A.GetRandomBanditTemplateName()
-  if not templateName then break end
+    while spawnedAircraft < desiredAircraft do
+      if _aliveCount(self.Spawned) >= (CFG.CAP.MAX_ALIVE_BANDITS or 8) then break end
+      local banditDef = A2A.GetBanditDef()
+      if not banditDef then break end
 
-  local templateSize = A2A.TemplateUnitCount(templateName)
-  waveGroups = waveGroups + 1
-      local templateName = A2A.GetRandomBanditTemplateName()
-      if not templateName then break end
+      local templateSize = A2A.TemplateUnitCount(banditDef)
+      waveGroups = waveGroups + 1
 
       local dist = CFG.CAP.RADIUS_MIN_NM + math.random() * (CFG.CAP.RADIUS_MAX_NM - CFG.CAP.RADIUS_MIN_NM)
       local brg = math.random(0, 359)
       local where = self.CapCenter:Translate(dist * 1852.0, brg, true, false)
       local alias = string.format("CAP_%d_%d", waveGroups, math.random(1,10000))
 
-      A2A.SpawnBanditFromTemplate(templateName, alias, where, (brg + 180) % 360, function(g)
+      A2A.SpawnBandit(self.Rec.Session, banditDef, alias, where, (brg + 180) % 360, function(g)
         table.insert(self.Spawned, g)
         table.insert(spawnedThisWave, g)
-        self.Rec.ActiveBandits[g:GetName()] = g
+        A2A.TrackSplash(self.Rec.Group, g)
 
         local fg = FLIGHTGROUP:New(g):SetDetection(true)
         fg:AddMission(AUFTRAG:NewINTERCEPT(unit))
-  spawnedAircraft = spawnedAircraft + templateSize
-end
-)
+      end)
+      spawnedAircraft = spawnedAircraft + templateSize
     end
 
     if #spawnedThisWave > 0 then

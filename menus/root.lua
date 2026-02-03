@@ -3,17 +3,17 @@
 ---------------------------------------------------------------------
 env.info("TCS(MENU): loading root")
 
-TCS_MENU = TCS_MENU or {}
-TCS_MENU.Groups = TCS_MENU.Groups or {}
+TCS.Menu = TCS.Menu or {}
+TCS.Menu.Groups = TCS.Menu.Groups or {}
 
-function TCS_MENU.BuildRoot(group)
+function TCS.Menu.BuildRoot(group)
   local gname = group:GetName()
   
   -- We overwrite the entry to ensure we are using the fresh Group object 
   -- provided by the current Birth event.
   local root = MENU_GROUP:New(group, "TCS")
 
-  TCS_MENU.Groups[gname] = {
+  TCS.Menu.Groups[gname] = {
     ROOT     = root,
     TRAINING = MENU_GROUP:New(group, "TRAINING", root),
     A2A      = MENU_GROUP:New(group, "A2A", root),

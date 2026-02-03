@@ -2,7 +2,11 @@
 -- Escort spawns a friendly package template and then spawns threats relative to that package.
 -- Includes PACKAGE_STRIKE as requested.
 
-ESCORT = {}
+local CFG = TCS.A2A.Config
+local A2A = TCS.A2A
+
+TCS.A2A.ESCORT = {}
+local ESCORT = TCS.A2A.ESCORT
 
 local function _aliveCount(list)
   return A2A.AliveAircraftCount(list)
@@ -13,20 +17,54 @@ local function _schedule(mode, delaySec, fn)
   SCHEDULER:New(nil, function() if mode and not mode.Terminated then fn() end end, {}, delaySec, nil)
 end
 
-local function _spawnPackage(rec, templateName, alias, spawnCoord, headingDeg)
-  if not templateName or templateName == "" then return nil end
-  local sp = SPAWN:NewWithAlias(templateName, alias):InitHeading(headingDeg)
-  local spawned = nil
-  sp:OnSpawnGroup(function(g) spawned = g end):SpawnFromVec3(spawnCoord)
-  return spawned
+local function _spawnPackage(rec, pkgRef, alias, spawnCoord, headingDeg)
+  -- Check if pkgRef is a key in CFG.Packages
+  local def = CFG.Packages and CFG.Packages[pkgRef]
+  
+  if def then
+    -- Dynamic Spawn
+    local opts = {
+      coalition = CFG.Coalition or coalition.side.BLUE,
+      skill = def.skill,
+      alt = spawnCoord.y,
+      heading = headingDeg,
+    }
+    local g = TCS.Spawn.Group(def.unit_type, spawnCoord, opts, "AIRPLANE", def.count or 1)
+    if g and rec.Session then TCS.A2A.Registry:Register(rec.Session, g) end
+    return g
+  else
+    -- Legacy Template Spawn
+    if not pkgRef or pkgRef == "" then return nil end
+    local sp = SPAWN:NewWithAlias(pkgRef, alias):InitHeading(headingDeg)
+    local spawned = nil
+    sp:OnSpawnGroup(function(g) spawned = g; if rec.Session then TCS.A2A.Registry:Register(rec.Session, g) end end):SpawnFromVec3(spawnCoord)
+    return spawned
+  end
 end
 
 local function _routePackage(pkgGroup, headingDeg)
   if not pkgGroup or not pkgGroup:IsAlive() then return end
   local start = pkgGroup:GetCoordinate()
-  local dest = start:Translate((CFG.ESCORT.PACKAGE_ROUTE_NM or 80) * 1852.0, headingDeg, true, false)
+  
+  local distCfg = CFG.ESCORT.PACKAGE_ROUTE_NM
+  local dist = 80
+  if type(distCfg) == "table" then
+    dist = distCfg.MIN + math.random() * (distCfg.MAX - distCfg.MIN)
+  elseif type(distCfg) == "number" then
+    dist = distCfg
+  end
+
+  local dest = start:Translate(dist * 1852.0, headingDeg, true, false)
   local v2 = dest:GetVec2()
-  local kts = CFG.ESCORT.PACKAGE_SPEED_KTS or 350
+  
+  local ktsCfg = CFG.ESCORT.PACKAGE_SPEED_KTS
+  local kts = 350
+  if type(ktsCfg) == "table" then
+    kts = ktsCfg.MIN + math.random() * (ktsCfg.MAX - ktsCfg.MIN)
+  elseif type(ktsCfg) == "number" then
+    kts = ktsCfg
+  end
+
   pcall(function()
     pkgGroup:TaskRouteToVec2(v2, kts, "Cone")
   end)
@@ -94,37 +132,37 @@ function ESCORT:Start(rec, packageTemplate, durationSec)
 
     local pkgCoord = self.Package:GetCoordinate()
     local desiredAircraft = math.random(CFG.ESCORT.THREAT_MIN_BANDITS, CFG.ESCORT.THREAT_MAX_BANDITS)
-local spawnedWave = {}
-local spawnedAircraft = 0
-local waveGroups = 0
+    local spawnedWave = {}
+    local spawnedAircraft = 0
+    local waveGroups = 0
 
-while spawnedAircraft < desiredAircraft do
-  if _aliveCount(self.Threats) >= (CFG.ESCORT.MAX_ALIVE_BANDITS or 10) then break end
-  local tname = A2A.GetRandomBanditTemplateName()
-  if not tname then break end
+    while spawnedAircraft < desiredAircraft do
+      if _aliveCount(self.Threats) >= (CFG.ESCORT.MAX_ALIVE_BANDITS or 10) then break end
+      local banditDef = A2A.GetBanditDef()
+      if not banditDef then break end
 
-  local templateSize = A2A.TemplateUnitCount(tname)
-  waveGroups = waveGroups + 1
+      local templateSize = A2A.TemplateUnitCount(banditDef)
+      waveGroups = waveGroups + 1
       local dist = CFG.ESCORT.THREAT_MIN_NM + math.random() * (CFG.ESCORT.THREAT_MAX_NM - CFG.ESCORT.THREAT_MIN_NM)
       local jitter = math.random(-CFG.ESCORT.THREAT_JITTER_DEG, CFG.ESCORT.THREAT_JITTER_DEG)
       local brg = (hdg + 180 + jitter) % 360
       local center = pkgCoord:Translate(dist * 1852.0, brg, true, false)
 
       -- spread L/R around center
-      local side = ((i % 2) == 0) and 90 or -90
+      local side = ((waveGroups % 2) == 0) and 90 or -90
       local off = (math.random() * (CFG.ESCORT.THREAT_SPREAD_NM or 6))
       local where = center:Translate(off * 1852.0, brg + side, true, false)
 
       local alias = string.format("ESC_%d_%d", waveGroups, math.random(1,10000))
-      A2A.SpawnBanditFromTemplate(tname, alias, where, (brg + 180) % 360, function(g)
+      A2A.SpawnBandit(self.Rec.Session, banditDef, alias, where, (brg + 180) % 360, function(g)
         table.insert(self.Threats, g)
         table.insert(spawnedWave, g)
-        self.Rec.ActiveBandits[g:GetName()] = g
+        A2A.TrackSplash(self.Rec.Group, g)
         local fg = FLIGHTGROUP:New(g):SetDetection(true)
         fg:AddMission(AUFTRAG:NewINTERCEPT(self.Package))
       end)
-  spawnedAircraft = spawnedAircraft + templateSize
-end
+      spawnedAircraft = spawnedAircraft + templateSize
+    end
 
     if #spawnedWave > 0 then
       MsgToGroup(group, "ESCORT: threats inbound (" .. tostring(#spawnedWave) .. ").", 8)

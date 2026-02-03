@@ -21,6 +21,26 @@ local MAX_NM   = 60
 -- Utilities
 ---------------------------------------------------------------------
 
+local function ResolveUCID(unit)
+  if not unit then return nil end
+  -- Try PILOT_ID if available (FunkMan/Core integration)
+  if PILOT_ID and PILOT_ID.FromUnit then
+    local id = PILOT_ID.FromUnit(unit)
+    if id and id.ucid then return id end
+  end
+  -- Fallback
+  return {
+    ucid = nil,
+    name = unit:GetPlayerName() or "AI"
+  }
+end
+
+local function SendBotEvent(msg)
+  if dcsbot and dcsbot.sendBotTable then
+    dcsbot.sendBotTable(msg)
+  end
+end
+
 local function DestroyStatics(range)
   for _, obj in ipairs(range.statics) do
     if obj and obj:isExist() then
@@ -30,9 +50,25 @@ local function DestroyStatics(range)
   range.statics = {}
 end
 
+local function DestroyMobiles(range)
+  for _, grp in ipairs(range.mobiles or {}) do
+    if grp and grp:isExist() then
+      grp:destroy()
+    end
+  end
+  range.mobiles = {}
+end
+
 local function SpawnStatic(range, data)
-  local obj = coalition.addStaticObject(coalition.side.BLUE, data)
+  local obj = coalition.addStaticObject(range.enemyCoalition or coalition.side.RED, data)
   table.insert(range.statics, obj)
+end
+
+local function SpawnMobile(range, data)
+  local group = coalition.addGroup(range.enemyCoalition or coalition.side.RED, Group.Category.GROUND, data)
+  if group then
+    table.insert(range.mobiles, group)
+  end
 end
 
 ---------------------------------------------------------------------
@@ -77,11 +113,15 @@ end
 local function FindAnchorAhead(unit)
   local coord = unit:GetCoordinate()
   local track = unit:GetHeading()
+  local offsets = { 0, 15, -15, 30, -30 }
 
   for dist = START_NM, MAX_NM, STEP_NM do
-    local test = coord:Translate(dist * NM_TO_M, track)
-    if IsUsableTerrain(test) then
-      return test, dist
+    for _, offset in ipairs(offsets) do
+      local scanHdg = track + offset
+      local test = coord:Translate(dist * NM_TO_M, scanHdg)
+      if IsUsableTerrain(test) then
+        return test, dist
+      end
     end
   end
 
@@ -101,6 +141,7 @@ local function DestroyRange(groupName)
   end
 
   DestroyStatics(range)
+  DestroyMobiles(range)
   A2G_RANGE.Ranges[groupName] = nil
 
   env.info("[A2G_RANGE] Destroyed range owned by " .. groupName)
@@ -119,24 +160,51 @@ local function CreateMooseRange(range, groupName)
   r:SetStrafeAccuracy(true)
 
   function r:OnAfterBombingResult(EventData)
-    A2G_RANGE.Export(groupName, {
-      pass     = "BOMB",
-      pilot    = EventData.IniPlayerName or "UNKNOWN",
-      aircraft = EventData.IniTypeName or "UNKNOWN",
-      weapon   = EventData.Weapon or "UNKNOWN",
-      distance = EventData.Distance or -1,
-    })
+    local unit = EventData.IniUnit
+    local id = ResolveUCID(unit)
+    
+    -- Send to DCSServerBot
+    local msg = {
+      command   = "onMissionEvent",
+      eventName = "S_EVENT_RANGE_BOMB",
+      initiator = {
+        ucid = id.ucid,
+        name = id.name,
+        unit = unit and unit:GetName() or "UNKNOWN"
+      },
+      range = {
+        name     = "A2G_RANGE_" .. groupName,
+        weapon   = EventData.WeaponName or "UNKNOWN",
+        distance = EventData.Distance or -1, -- meters
+        score    = EventData.Score or 0
+      },
+      time = timer.getTime()
+    }
+    SendBotEvent(msg)
   end
 
   function r:OnAfterStrafeResult(EventData)
-    A2G_RANGE.Export(groupName, {
-      pass     = "STRAFE",
-      pilot    = EventData.IniPlayerName or "UNKNOWN",
-      aircraft = EventData.IniTypeName or "UNKNOWN",
-      rounds   = EventData.RoundCount or 0,
-      hits     = EventData.Hits or 0,
-      score    = EventData.Score or 0,
-    })
+    local unit = EventData.IniUnit
+    local id = ResolveUCID(unit)
+
+    -- Send to DCSServerBot
+    local msg = {
+      command   = "onMissionEvent",
+      eventName = "S_EVENT_RANGE_STRAFE",
+      initiator = {
+        ucid = id.ucid,
+        name = id.name,
+        unit = unit and unit:GetName() or "UNKNOWN"
+      },
+      range = {
+        name     = "A2G_RANGE_" .. groupName,
+        rounds   = EventData.RoundsFired or 0,
+        hits     = EventData.RoundsHit or 0,
+        score    = EventData.Score or 0
+      },
+      time = timer.getTime()
+    }
+    SendBotEvent(msg)
   end
 
   range.moose = r
@@ -199,6 +267,82 @@ Layouts.MIXED = function(range, center, track)
   Layouts.STRAFE(range, center:Translate(200, track + 90), track)
 end
 
+local function CreateMovingGroup(range, center, track, unitType, suffix)
+  -- 3km crossing path perpendicular to range axis
+  local startPt = center:Translate(1500, track - 90)
+  local endPt   = center:Translate(1500, track + 90)
+
+  local units = {}
+  for i = 1, 5 do
+    -- Column formation trailing the start point
+    local uPos = startPt:Translate((i-1)*50, track - 90)
+    table.insert(units, {
+      name = range.id .. "_" .. suffix .. "_" .. i,
+      type = unitType,
+      x = uPos.x,
+      y = uPos.z,
+      heading = (track + 90) * (math.pi/180),
+      skill = "High"
+    })
+  end
+
+  local route = {
+    points = {
+      [1] = {
+        x = startPt.x,
+        y = startPt.z,
+        action = "Off Road",
+        speed = 11, -- ~40 kph
+        type = "Turning Point",
+      },
+      [2] = {
+        x = endPt.x,
+        y = endPt.z,
+        action = "Off Road",
+        speed = 11,
+        type = "Turning Point",
+      }
+    }
+  }
+
+  SpawnMobile(range, {
+    name = range.id .. "_" .. suffix .. "_GRP",
+    task = "Ground Nothing",
+    route = route,
+    units = units
+  })
+end
+
+Layouts.MOVING = function(range, center, track)
+  CreateMovingGroup(range, center, track, "Ural-375", "MOV")
+end
+
+Layouts.MOVING_HOSTILE = function(range, center, track)
+  CreateMovingGroup(range, center, track, "BMP-2", "MOV_H")
+end
+
+Layouts.POPUP = function(range, center, track)
+  local units = {}
+  -- SA-13 Strela-10M3
+  table.insert(units, {
+    name = range.id .. "_SAM",
+    type = "Strela-10M3",
+    x = center.x,
+    y = center.z,
+    heading = track * (math.pi/180),
+    skill = "High"
+  })
+
+  SpawnMobile(range, {
+    name = range.id .. "_SAM_GRP",
+    task = "Ground Nothing",
+    units = units
+  })
+
+  -- Add some ISO containers as targets
+  Layouts.ISO(range, center:Translate(400, track), track)
+end
+
 ---------------------------------------------------------------------
 -- Public API
 ---------------------------------------------------------------------
@@ -220,11 +364,16 @@ function A2G_RANGE.Build(groupName, unitName, layout)
     return
   end
 
+  local pCoal = group:GetCoalition()
+  local eCoal = (pCoal == coalition.side.BLUE) and coalition.side.RED or coalition.side.BLUE
+
   local range = {
     id      = groupName,
     owner   = groupName,
     statics = {},
-    moose   = nil
+    mobiles = {},
+    moose   = nil,
+    enemyCoalition = eCoal
   }
 
   A2G_RANGE.Ranges[groupName] = range
@@ -262,13 +411,6 @@ function A2G_RANGE.Handler:OnEvent(event)
   end
 end
 
----------------------------------------------------------------------
--- Export (DCSServerBot / FunkMan)
----------------------------------------------------------------------
-
-function A2G_RANGE.Export(ownerGroup, data)
-  data.owner     = ownerGroup
-  data.timestamp = timer.getAbsTime()
-
-  env.info("[A2G_RANGE] " .. mist.utils.serialize("", data))
-end
+-- Namespace Alias
+TCS = TCS or {}; TCS.A2G = TCS.A2G or {}
+TCS.A2G.Range = A2G_RANGE

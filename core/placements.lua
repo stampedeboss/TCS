@@ -1,14 +1,13 @@
 ---------------------------------------------------------------------
--- TCS A2G BASE PLACEMENT
+-- TCS PLACEMENT
 -- Authoritative world placement routine
--- Used by ALL A2G domains
+-- Used by ALL domains
 ---------------------------------------------------------------------
 
-env.info("TCS(A2G.PLACEMENT): loading")
+env.info("TCS(PLACEMENT): loading")
 
 TCS            = TCS or {}
-TCS.A2G        = TCS.A2G or {}
-TCS.A2G.Place  = TCS.A2G.Place or {}
+TCS.Placement  = TCS.Placement or {}
 
 ---------------------------------------------------------------------
 -- Constants
@@ -26,20 +25,25 @@ local ANGLE_OFFSETS = { 0, 15, -15, 30, -30, 45, -45 }
 -- Terrain suitability
 ---------------------------------------------------------------------
 
-local function IsUsableTerrain(coord)
-  -- Reject water
-  if land.getSurfaceType({ x = coord.x, y = coord.z }) == land.SurfaceType.WATER then
-    return false
+function TCS.Placement.Validate(coord, domain)
+  if not coord then return false end
+  local s = land.getSurfaceType({ x = coord.x, y = coord.z })
+
+  if domain == "SEA" then
+    return s == land.SurfaceType.WATER
   end
 
-  -- Reject steep slopes
+  -- LAND (Default)
+  if s == land.SurfaceType.WATER then return false end
+
+  -- Reject steep slopes (Land only)
   local h1 = coord:GetLandHeight()
   local h2 = coord:Translate(10, 0):GetLandHeight()
   if math.abs(h1 - h2) > 2.0 then
     return false
   end
 
-  -- Reject dense city cores (soft check)
+  -- Reject dense city cores (soft check) (Land only)
   local count = 0
   world.searchObjects(
     Object.Category.SCENERY,
@@ -68,18 +72,19 @@ end
 --   headingUsed (degrees)
 ---------------------------------------------------------------------
 
-function TCS.A2G.Place.Resolve(unit)
+function TCS.Placement.Resolve(unit, domain)
   if not unit or not unit:IsAlive() then return nil end
 
   local origin = unit:GetCoordinate()
   local track  = unit:GetHeading()
+  domain = domain or "LAND"
 
   for dist = START_NM, MAX_NM, STEP_NM do
     for _, offset in ipairs(ANGLE_OFFSETS) do
       local heading = track + offset
       local test    = origin:Translate(dist * NM_TO_M, heading)
 
-      if IsUsableTerrain(test) then
+      if TCS.Placement.Validate(test, domain) then
         return test, dist, heading
       end
     end
@@ -88,4 +93,4 @@ function TCS.A2G.Place.Resolve(unit)
   return nil
 end
 
-env.info("TCS(A2G.PLACEMENT): loaded")
+env.info("TCS(PLACEMENT): loaded")

@@ -27,11 +27,14 @@ function TCS.A2G.CAS(group, opts)
   destroyExistingCAS(session)
   TCS.A2G.Feedback.Group(group, "Replacing existing CAS tasking")
 
-  local anchor, reason = TCS.A2G.Placement.Resolve(session)
+  local anchor, reason = TCS.Placement.Resolve(group:GetUnit(1))
   if not anchor then
     TCS.A2G.Feedback.Group(group, "Unable to establish CAS battlespace", reason)
     return
   end
+
+  -- Store target for JTAC operations (Laser On)
+  session.A2G_Target = anchor
 
   local friendlyEch = opts.echelon or TCS.SessionScale:GetEchelon(session)
   local enemyEch    = TCS.SessionScale:BalanceOpposition(friendlyEch)
@@ -41,27 +44,20 @@ function TCS.A2G.CAS(group, opts)
     return
   end
 
-  local friendly = TCS.A2G.ForceSpawner:SpawnFriendly(session, TAG, friendlyEch, anchor)
-  local enemy    = TCS.A2G.ForceSpawner:SpawnEnemy(session, TAG, enemyEch, anchor)
+  local friendly = TCS.A2G.ForceSpawner.Spawn(session, "MECH_INF", friendlyEch, anchor, {coalition=coalition.side.BLUE})
+  local enemy    = TCS.A2G.ForceSpawner.Spawn(session, "MECH_INF", enemyEch, anchor, {coalition=coalition.side.RED})
 
   if not friendly or not enemy then
     TCS.A2G.Feedback.Group(group, "Unable to establish CAS battlespace", "spawn failure")
     return
   end
 
-  for _, o in ipairs(friendly) do
-    TCS.A2G.Registry:Register(session, o, TAG)
-  end
-  for _, o in ipairs(enemy) do
-    TCS.A2G.Registry:Register(session, o, TAG)
+  if TCS.A2G.JTAC and TCS.A2G.JTAC.MarkFriendlies then
+    TCS.A2G.JTAC.MarkFriendlies(session, friendly)
   end
 
-  if A2G_JTAC and A2G_JTAC.MarkFriendlies then
-    A2G_JTAC.MarkFriendlies(session, friendly)
-  end
-
-  if A2G_JTAC and A2G_JTAC.BriefCAS then
-    A2G_JTAC.BriefCAS(session, anchor)
+  if TCS.A2G.JTAC and TCS.A2G.JTAC.BriefCAS then
+    TCS.A2G.JTAC.BriefCAS(session, anchor)
   end
 
   TCS.A2G.Feedback.Group(group, "CAS support established")

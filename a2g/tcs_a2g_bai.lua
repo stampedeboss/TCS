@@ -51,10 +51,10 @@ function TCS.A2G.BAI(group, opts)
   MESSAGE:New("TCS: Replacing existing BAI tasking", 8):ToGroup(group)
 
   -- Resolve echelon (selectable)
-  local echelon = opts.echelon or TCS.SessionScale:GetEchelon(session)
+  local echelon = opts.echelon or TCS.GetEchelonForSession(session)
 
   -- Placement
-  local anchor, reason = TCS.A2G.Placement.Resolve(session)
+  local anchor, reason = TCS.Placement.Resolve(group:GetUnit(1))
   if not anchor then
     MESSAGE:New(
       "TCS: Unable to establish BAI battlespace\nReason: " .. (reason or "unknown"),
@@ -67,18 +67,13 @@ function TCS.A2G.BAI(group, opts)
   anchor = TCS.A2G.PlacementBias.Resolve(anchor, TAG)
 
   -- Spawn force
-  local spawned = TCS.A2G.ForceSpawner:Spawn(session, TAG, echelon, anchor)
+  local spawned = TCS.A2G.ForceSpawner.Spawn(session, TAG, echelon, anchor)
   if not spawned or #spawned == 0 then
     MESSAGE:New(
       "TCS: BAI force generation failed",
       12
     ):ToGroup(group)
     return
-  end
-
-  -- Register ownership
-  for _, obj in ipairs(spawned) do
-    TCS.A2G.Registry:Register(session, obj, TAG)
   end
 
   -- Mandatory A2G AWACS tasking

@@ -30,10 +30,6 @@ function TCS.A2G.STRIKE(session)
 
   local force = TCS.A2G.ForceSpawner.Spawn(session, "STRIKE", echelon, biased)
 
-  for _, obj in ipairs(force or {}) do
-    TCS.A2G.Registry:Register(session, obj)
-  end
-
   TCS.A2G.Feedback.ToGroup(
     session:GetGroup(),
     "STRIKE tasking established",

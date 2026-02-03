@@ -5,7 +5,11 @@
 --   PHASE 2: SANITIZE the corridor (bandits distributed through corridor, optional trickle).
 -- Completion: corridor sanitized (no bandits alive) OR duration expires. Optional EGRESS call.
 
-SWEEP = {}
+local CFG = TCS.A2A.Config
+local A2A = TCS.A2A
+
+TCS.A2A.SWEEP = {}
+local SWEEP = TCS.A2A.SWEEP
 
 local function _aliveCount(list)
   return A2A.AliveAircraftCount(list)
@@ -125,14 +129,14 @@ function SWEEP:Start(rec, durationSec)
 
     local count = math.random(CFG.SWEEP.INITIAL_MIN_BANDITS, CFG.SWEEP.INITIAL_MAX_BANDITS)
     for i = 1, count do
-      local tname = A2A.GetRandomBanditTemplateName()
-      if not tname then break end
+      local banditDef = A2A.GetBanditDef()
+      if not banditDef then break end
       local where = _randomInCorridor(self.Center, self.Heading, CFG.SWEEP.LENGTH_NM, CFG.SWEEP.WIDTH_NM)
       local alias = string.format("SWP_%d_%d", i, math.random(1,10000))
       local spawnHdg = (self.Heading + 180) % 360
-      A2A.SpawnBanditFromTemplate(tname, alias, where, spawnHdg, function(g)
+      A2A.SpawnBandit(self.Rec.Session, banditDef, alias, where, spawnHdg, function(g)
         table.insert(self.Spawned, g)
-        self.Rec.ActiveBandits[g:GetName()] = g
+        A2A.TrackSplash(self.Rec.Group, g)
         local fg = FLIGHTGROUP:New(g):SetDetection(true)
         fg:AddMission(AUFTRAG:NewINTERCEPT(unit))
       end)
@@ -168,27 +172,27 @@ function SWEEP:Start(rec, durationSec)
     end
 
     local desiredAircraft = math.random(CFG.SWEEP.WAVE_MIN_BANDITS, CFG.SWEEP.WAVE_MAX_BANDITS)
-local spawnedAircraft = 0
-local waveGroups = 0
+    local spawnedAircraft = 0
+    local waveGroups = 0
 
-while spawnedAircraft < desiredAircraft do
-  if _aliveCount(self.Spawned) >= (CFG.SWEEP.MAX_ALIVE_BANDITS or 8) then break end
-  local tname = A2A.GetRandomBanditTemplateName()
-  if not tname then break end
+    while spawnedAircraft < desiredAircraft do
+      if _aliveCount(self.Spawned) >= (CFG.SWEEP.MAX_ALIVE_BANDITS or 8) then break end
+      local banditDef = A2A.GetBanditDef()
+      if not banditDef then break end
 
-  local templateSize = A2A.TemplateUnitCount(tname)
-  waveGroups = waveGroups + 1
+      local templateSize = A2A.TemplateUnitCount(banditDef)
+      waveGroups = waveGroups + 1
       local where = _randomInCorridor(self.Center, self.Heading, CFG.SWEEP.LENGTH_NM, CFG.SWEEP.WIDTH_NM)
-      local alias = string.format("SWP_T_%d_%d", i, math.random(1,10000))
+      local alias = string.format("SWP_T_%d_%d", waveGroups, math.random(1,10000))
       local spawnHdg = (self.Heading + 180) % 360
-      A2A.SpawnBanditFromTemplate(tname, alias, where, spawnHdg, function(g)
+      A2A.SpawnBandit(self.Rec.Session, banditDef, alias, where, spawnHdg, function(g)
         table.insert(self.Spawned, g)
-        self.Rec.ActiveBandits[g:GetName()] = g
+        A2A.TrackSplash(self.Rec.Group, g)
         local fg = FLIGHTGROUP:New(g):SetDetection(true)
         fg:AddMission(AUFTRAG:NewINTERCEPT(unit))
       end)
-  spawnedAircraft = spawnedAircraft + templateSize
-end
+      spawnedAircraft = spawnedAircraft + templateSize
+    end
 
     MsgToGroup(group, "SWEEP: additional contacts injected.", 8)
     _schedule(self, math.random(CFG.SWEEP.WAVE_MIN_SEC, CFG.SWEEP.WAVE_MAX_SEC), function() self:SpawnTrickle() end)

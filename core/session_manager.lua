@@ -22,14 +22,77 @@ TCS.SessionManager = {}
 TCS.SessionManager.__index = TCS.SessionManager
 
 ---------------------------------------------------------------------
--- Internal State
+-- TCS.Session Class
 ---------------------------------------------------------------------
+TCS.Session = {}
+TCS.Session.__index = TCS.Session
 
--- groupName -> session
-TCS.SessionManager.GroupToSession = {}
+function TCS.Session:New(name, leadGroupName)
+  local o = {
+    Name = name,
+    LeadGroupName = leadGroupName,
+    Members = {},     -- [groupName] = true
+    ActiveModes = {}, -- [key] = modeObj (A2A)
+  }
+  setmetatable(o, TCS.Session)
+  if leadGroupName then o.Members[leadGroupName] = true end
+  return o
+end
 
--- sessionName -> session
-TCS.SessionManager.Sessions = {}
+function TCS.Session:GetName() return self.Name end
+
+function TCS.Session:IsLead(groupName)
+  return self.LeadGroupName == groupName
+end
+
+function TCS.Session:AddMember(groupName)
+  self.Members[groupName] = true
+  if not self.LeadGroupName then self.LeadGroupName = groupName end
+end
+
+function TCS.Session:RemoveMember(groupName)
+  self.Members[groupName] = nil
+  if self.LeadGroupName == groupName then
+    self.LeadGroupName = nil
+    -- Promote next available member
+    for m in pairs(self.Members) do
+      self.LeadGroupName = m
+      local g = GROUP:FindByName(m)
+      if g then MsgToGroup(g, "You are now Session " .. self.Name .. " LEAD.", 10) end
+      break
+    end
+  end
+end
+
+function TCS.Session:IsEmpty()
+  return next(self.Members) == nil
+end
+
+function TCS.Session:Broadcast(text, seconds)
+  for m in pairs(self.Members) do
+    local g = GROUP:FindByName(m)
+    if g then MsgToGroup(g, text, seconds) end
+  end
+end
+
+function TCS.Session:ForEachMemberRec(fn)
+  for m in pairs(self.Members) do
+    local g = GROUP:FindByName(m)
+    if g then
+      -- Try global GetPlayer (A2A)
+      local rec = nil
+      if GetPlayer then rec = GetPlayer(g) end
+      if rec then fn(rec) end
+    end
+  end
+end
+
+function TCS.Session:TerminateModes(reason)
+  for _, m in pairs(self.ActiveModes) do
+    if m and m.Terminate then pcall(function() m:Terminate(reason) end) end
+  end
+  self.ActiveModes = {}
+end
 
 ---------------------------------------------------------------------
 -- Internal Utilities
@@ -48,21 +111,12 @@ end
 ---------------------------------------------------------------------
 
 local function _cleanupDomainArtifacts(session, groupName)
-  -- A2G
-  if TCS.A2G and TCS.A2G.Registry then
+  -- Unified Registry Cleanup
+  if TCS.Registry then
     if groupName then
-      TCS.A2G.Registry:CleanupGroup(session, groupName)
+      TCS.Registry:CleanupGroup(session, groupName)
     else
-      TCS.A2G.Registry:Cleanup(session)
-    end
-  end
-
-  -- A2A
-  if TCS.A2A and TCS.A2A.Registry then
-    if groupName then
-      TCS.A2A.Registry:CleanupGroup(session, groupName)
-    else
-      TCS.A2A.Registry:Cleanup(session)
+      TCS.Registry:Cleanup(session)
     end
   end
 
@@ -73,22 +127,22 @@ end
 -- SESSION LIFECYCLE
 ---------------------------------------------------------------------
 
-function TCS.SessionManager:CreateSession(ownerGroup, opts)
-  local ownerName = _getGroupName(ownerGroup)
-  if not ownerName then return nil end
+TCS.SessionManager.Sessions = {}       -- Name -> Session
+TCS.SessionManager.GroupToSession = {} -- GroupName -> Session
 
-  local name = opts and opts.name or ("SESSION_" .. ownerName)
+function TCS.SessionManager:CreateSession(name, leadGroup)
+  local gname = _getGroupName(leadGroup)
+  if not gname then return nil end
 
-  local session = TCS.Session:New({
-    name  = name,
-    owner = ownerName,
-    mode  = opts and opts.mode or "OPERATIONAL",
-  })
+  -- If group already in session, leave it
+  self:LeaveSession(leadGroup)
 
-  self.Sessions[name] = session
-  _log("created session " .. name .. " owned by " .. ownerName)
+  local s = TCS.Session:New(name, gname)
+  self.Sessions[name] = s
+  self.GroupToSession[gname] = s
+  _log("created session " .. name .. " owned by " .. gname)
 
-  return session
+  return s
 end
 
 function TCS.SessionManager:DestroySession(session)
@@ -98,6 +152,7 @@ function TCS.SessionManager:DestroySession(session)
   _log("destroying session " .. name)
 
   -- Full cleanup across all domains
+  session:TerminateModes("DESTROY")
   _cleanupDomainArtifacts(session, nil)
 
   -- Remove all group bindings
@@ -108,7 +163,6 @@ function TCS.SessionManager:DestroySession(session)
   end
 
   self.Sessions[name] = nil
-  session:Destroy()
 end
 
 ---------------------------------------------------------------------
@@ -124,29 +178,30 @@ function TCS.SessionManager:LeaveSession(group)
 
   _log(groupName .. " leaving session " .. session:GetName())
 
-  if session:IsOwner(groupName) then
-    -- Owner leaving destroys the session
-    self:DestroySession(session)
-  else
-    -- Member leaving: clean only their artifacts
-    _cleanupDomainArtifacts(session, groupName)
-    session:RemoveMember(groupName)
-  end
-
+  MsgToGroup(group, "Left Session " .. session.Name .. ".", 6)
+  _cleanupDomainArtifacts(session, groupName)
+  session:RemoveMember(groupName)
   self.GroupToSession[groupName] = nil
+
+  if session:IsEmpty() then
+    self:DestroySession(session)
+  end
 end
 
-function TCS.SessionManager:JoinSession(group, targetSession)
-  local groupName = _getGroupName(group)
-  if not groupName or not targetSession then return end
+function TCS.SessionManager:JoinSession(sessionName, group)
+  local s = self.Sessions[sessionName]
+  if not s then
+    return self:CreateSession(sessionName, group)
+  end
 
-  -- Atomic transition
+  local gname = _getGroupName(group)
+  if self.GroupToSession[gname] == s then return s end
+
   self:LeaveSession(group)
-
-  targetSession:AddMember(groupName)
-  self.GroupToSession[groupName] = targetSession
-
-  _log(groupName .. " joined session " .. targetSession:GetName())
+  s:AddMember(gname)
+  self.GroupToSession[gname] = s
+  MsgToGroup(group, "Joined Session " .. sessionName .. ". Lead: " .. tostring(s.LeadGroupName), 10)
+  return s
 end
 
 ---------------------------------------------------------------------
@@ -162,11 +217,19 @@ function TCS.SessionManager:GetOrCreateSessionForGroup(group, opts)
     return session
   end
 
-  session = self:CreateSession(group, opts)
-  session:AddMember(groupName)
-  self.GroupToSession[groupName] = session
+  local name = (opts and opts.name) or ("SESSION_" .. groupName)
+  return self:CreateSession(name, group)
+end
 
-  return session
+-- Helper for A2A legacy compatibility
+function TCS.SessionManager:Ensure(name)
+  -- Creates a session without a specific owner initially if called without group
+  local s = self.Sessions[name]
+  if not s then
+    s = TCS.Session:New(name, nil)
+    self.Sessions[name] = s
+  end
+  return s
 end
 
 ---------------------------------------------------------------------
@@ -176,6 +239,10 @@ end
 function TCS.SessionManager:GetSessionForGroup(group)
   local groupName = _getGroupName(group)
   return groupName and self.GroupToSession[groupName] or nil
+end
+
+function TCS.SessionManager:GetSession(name)
+  return self.Sessions[name]
 end
 
 function TCS.SessionManager:GetAllSessions()

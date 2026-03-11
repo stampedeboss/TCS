@@ -13,26 +13,40 @@ function PLAYERS:GetOrCreate(event)
 
   local rec = self.ByName[pname]
   if rec then
+    local oldGroup = rec.Group
     rec.Unit  = event.IniUnit
     rec.Group = event.IniGroup
     rec.Coalition = event.IniCoalition
-    return rec
+    rec.Menus = {} -- Reset menus on respawn
+
+    -- Session Persistence & Cleanup
+    if rec.Session and TCS.SessionManager and TCS.SessionManager.JoinSession then
+      local sName = rec.Session.Name
+      -- If slot changed, remove old group from session to prevent ghosts
+      if oldGroup and oldGroup:GetName() ~= rec.Group:GetName() then
+        TCS.SessionManager:LeaveSession(oldGroup)
+      end
+      -- Re-register new group (Idempotent if same group)
+      local newSession = TCS.SessionManager:JoinSession(sName, rec.Group)
+      if newSession then rec.Session = newSession end
+      -- Remind player
+      if MESSAGE then MESSAGE:New("TCS: Session state restored: " .. sName, 15):ToGroup(rec.Group) end
+    end
+  else
+    rec = {
+      Name = pname,
+      Unit = event.IniUnit,
+      Group = event.IniGroup,
+      Coalition = event.IniCoalition,
+      Menus = {},
+      ActiveModes = {},
+      ActiveBandits = {},
+      Cooldowns = {},
+      Session = nil,
+    }
+    self.ByName[pname] = rec
+    env.info("Player record Created")
   end
-
-  rec = {
-    Name = pname,
-    Unit = event.IniUnit,
-    Group = event.IniGroup,
-    Coalition = event.IniCoalition,
-    Menus = {},
-    ActiveModes = {},
-    ActiveBandits = {},
-    Cooldowns = {},
-    Session = nil,
-  }
-
-  self.ByName[pname] = rec
-  env.info("Player record Created")
 
   if TCS.Menu and TCS.Menu.BuildForPlayer then
     SCHEDULER:New(nil, function()
@@ -40,7 +54,7 @@ function PLAYERS:GetOrCreate(event)
       if not rec.Group or not rec.Group:IsAlive() then return end
       TCS.Menu.BuildForPlayer(rec)
     end, {}, 0.1)
-    env.info("Player Menus Created")
+    env.info("Player Menus Created/Refreshed")
   end
   return rec
 end

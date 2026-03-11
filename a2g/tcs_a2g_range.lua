@@ -4,18 +4,14 @@
 -- Shared scoring, exclusive control
 ---------------------------------------------------------------------
 
-A2G_RANGE = {
-  Ranges = {}   -- keyed by group name
-}
+TCS = TCS or {}
+TCS.RANGE = TCS.RANGE or {}
+
+TCS.RANGE.Ranges = TCS.RANGE.Ranges or {}   -- keyed by group name
 
 ---------------------------------------------------------------------
 -- Constants
 ---------------------------------------------------------------------
-
-local NM_TO_M  = 1852
-local START_NM = 30
-local STEP_NM  = 5
-local MAX_NM   = 60
 
 ---------------------------------------------------------------------
 -- Utilities
@@ -59,105 +55,75 @@ local function DestroyMobiles(range)
   range.mobiles = {}
 end
 
-local function SpawnStatic(range, data)
-  local obj = coalition.addStaticObject(range.enemyCoalition or coalition.side.RED, data)
-  table.insert(range.statics, obj)
-end
 
-local function SpawnMobile(range, data)
-  local group = coalition.addGroup(range.enemyCoalition or coalition.side.RED, Group.Category.GROUND, data)
-  if group then
-    table.insert(range.mobiles, group)
-  end
-end
-
----------------------------------------------------------------------
--- Terrain & Density Checks
----------------------------------------------------------------------
-
-local function IsUsableTerrain(coord)
-  if land.getSurfaceType({ x = coord.x, y = coord.z }) == land.SurfaceType.WATER then
-    return false
-  end
-
-  local h1 = coord:GetLandHeight()
-  local h2 = coord:Translate(10, 0):GetLandHeight()
-  if math.abs(h1 - h2) > 2.0 then
-    return false
-  end
-
-  -- Reject dense city cores only
-  local count = 0
-  world.searchObjects(
-    Object.Category.SCENERY,
-    {
-      id = world.VolumeType.SPHERE,
-      params = {
-        point  = { x = coord.x, y = h1, z = coord.z },
-        radius = 300
-      }
-    },
-    function()
-      count = count + 1
-      return count < 30
-    end
-  )
-
-  return count < 25
-end
-
----------------------------------------------------------------------
--- Anchor Finder (forward-only)
----------------------------------------------------------------------
-
-local function FindAnchorAhead(unit)
-  local coord = unit:GetCoordinate()
-  local track = unit:GetHeading()
-  local offsets = { 0, 15, -15, 30, -30 }
-
-  for dist = START_NM, MAX_NM, STEP_NM do
-    for _, offset in ipairs(offsets) do
-      local scanHdg = track + offset
-      local test = coord:Translate(dist * NM_TO_M, scanHdg)
-      if IsUsableTerrain(test) then
-        return test, dist
-      end
+local function ResolveCatalogEntry(filter)
+  if TCS.Catalog and TCS.Catalog.Query then
+    local candidates = TCS.Catalog.Query(filter)
+    if #candidates > 0 then
+      return candidates[math.random(#candidates)]
     end
   end
-
-  return nil, nil
+  return nil
 end
 
+local function start_funkman (R)
+  if not debug then return end
+  local info = debug.getinfo(1, 'S')
+  local current_file_path = info.source:sub(2) -- Remove the leading '@'
+  local subString = "FlyingWrecks"
+
+  if string.find(current_file_path, 'FlyingWrecks') then
+	  R:SetFunkManOn(10043)
+    env.info("FunkMan Started: 10043")
+		return
+  end
+  if string.find(current_file_path, 'Stampede') then
+    R:SetFunkManOn(10042)
+    env.info("FunkMan Started: 10042")
+		return
+	end
+	env.info("Running Single Player, No Funkman")
+	return
+end
 ---------------------------------------------------------------------
 -- Range Lifecycle
 ---------------------------------------------------------------------
 
 local function DestroyRange(groupName)
-  local range = A2G_RANGE.Ranges[groupName]
+  local range = TCS.RANGE.Ranges[groupName]
   if not range then return end
 
   if range.moose then
     range.moose:Stop()
   end
 
+  if range.detectors then
+    for _, detector in ipairs(range.detectors) do
+      detector:Destroy()
+    end
+    range.detectors = nil
+  end
+
+  if range.drawings then
+    for _, markId in ipairs(range.drawings) do
+      trigger.action.removeMark(markId)
+    end
+  end
+
   DestroyStatics(range)
   DestroyMobiles(range)
-  A2G_RANGE.Ranges[groupName] = nil
+  TCS.RANGE.Ranges[groupName] = nil
 
-  env.info("[A2G_RANGE] Destroyed range owned by " .. groupName)
+  env.info("[TCS.RANGE] Destroyed range owned by " .. groupName)
 end
 
 ---------------------------------------------------------------------
 -- MOOSE RANGE Setup (per range)
 ---------------------------------------------------------------------
 
-local function CreateMooseRange(range, groupName)
+function TCS.RANGE.CreateMooseRange(range, groupName)
   local r = RANGE:New("A2G_RANGE_" .. groupName)
-
-  r:SetScoreBombing(true)
-  r:SetScoreStrafing(true)
-  r:SetBombingAccuracy(true)
-  r:SetStrafeAccuracy(true)
+  if not r then return end
 
   function r:OnAfterBombingResult(EventData)
     local unit = EventData.IniUnit
@@ -176,7 +142,9 @@ local function CreateMooseRange(range, groupName)
         name     = "A2G_RANGE_" .. groupName,
         weapon   = EventData.WeaponName or "UNKNOWN",
         distance = EventData.Distance or -1, -- meters
-        score    = EventData.Score or 0
+        score    = EventData.Score or 0,
+        target   = EventData.TgtName or (EventData.TgtUnit and EventData.TgtUnit:GetName()) or "Unknown Target",
+        quality  = EventData.Quality or "MISS"
       },
       time = timer.getTime()
     }
@@ -200,194 +168,322 @@ local function CreateMooseRange(range, groupName)
         name     = "A2G_RANGE_" .. groupName,
         rounds   = EventData.RoundsFired or 0,
         hits     = EventData.RoundsHit or 0,
-        score    = EventData.Score or 0
+        score    = EventData.Score or 0,
+        target   = EventData.TgtName or "Strafe Target"
       },
       time = timer.getTime()
     }
     SendBotEvent(msg)
   end
 
+  -- if lfs then
+  --   _G.PATH.TRACKING = lfs.writedir() .. [[Tracking]]
+  --   -- r:Load(_G.PATH.TRACKING)
+  --   r:SetAutoSave(_G.PATH.TRACKING, "range_" .. groupName .. ".csv")
+  -- end
+
+  local commonCfg = TCS.A2G.Config and TCS.A2G.Config.RangeCommon or {}
+  local freq = commonCfg.FREQUENCY or 252.000
+
+  r:SetRangeControl(freq)
+  r:TrackBombsON()
+  r:TrackRocketsON()
+  r:TrackMissilesON()
+  r:SetDefaultPlayerSmokeBomb(commonCfg.SMOKE_ON_OFF ~= false)
+  start_funkman(r)
   range.moose = r
   r:Start()
 end
 
 ---------------------------------------------------------------------
--- Layouts
+-- Configuration Applicator
 ---------------------------------------------------------------------
 
-local Layouts = {}
+local function ApplySingleConfig(range, center, heading, cfg, suffix)
+  suffix = suffix or ""
+  local hdgRad = math.rad(heading)
+  local patternHdg = hdgRad + math.rad(cfg.pattern_rotation or 0)
+  
+  local coords = TCS.RANGE.BuildPattern(cfg.pattern, center, patternHdg, cfg)
+  local spawnedNames = {}
 
-Layouts.ISO = function(range, center, track)
-  for i = 1, 10 do
-    local c = center:Translate((i - 1) * 10, track + 90)
-    SpawnStatic(range, {
-      category   = "Cargo",
-      type       = "Container",
-      shape_name = "container_cargo",
-      name       = range.id .. "_ISO_" .. i,
-      x          = c.x,
-      y          = c.z,
-      heading    = track
-    })
-  end
-end
+  -- Activity: CONVOY (Moving)
+  if cfg.activity == "CONVOY" then
+    local rawType = cfg.target_pool[math.random(#cfg.target_pool)]
+    local entry = ResolveCatalogEntry({id=rawType})
+    
+    local uType = rawType
+    local cat = Group.Category.GROUND -- Default to ground
+    
+    if entry then
+      if entry.unit_types then uType = entry.unit_types[1] end
+      if entry.domain == "SEA" then 
+        cat = Group.Category.SHIP 
+      end
+    end
 
-Layouts.BOMB = function(range, center)
-  for i = 1, 8 do
-    local a = (360 / 8) * i
-    local c = center:Translate(50, a)
-    SpawnStatic(range, {
-      category   = "Cargo",
-      type       = "Container",
-      shape_name = "container_cargo",
-      name       = range.id .. "_BOMB_" .. i,
-      x          = c.x,
-      y          = c.z,
-      heading    = a
-    })
-  end
-end
+    -- Create route perpendicular to heading (crossing the range)
+    -- We use the center point to define a crossing path
+    local startPt = center:Translate(1500, heading - 90)
+    local endPt   = center:Translate(1500, heading + 90)
+    
+    local units = {}
+    for i, pos in ipairs(coords) do
+      -- For convoy, we use the pattern to define relative formation positions
+      -- But here we simplify to a column based on the start point for movement
+      -- Re-calculating column positions based on startPt for the route
+      local dist = (i-1) * (cfg.spacing_m or 50)
+      local uPos = startPt:Translate(dist, heading - 90) -- Trailing behind start
+      
+      table.insert(units, {
+        name = range.id .. "_" .. suffix .. "_MOV_" .. i,
+        type = uType,
+        x = uPos.x,
+        y = uPos.z,
+        heading = math.rad(heading + 90),
+        skill = "High"
+      })
+    end
 
-Layouts.STRAFE = function(range, center, track)
-  for i = 1, 6 do
-    local c = center:Translate(i * 25, track)
-    SpawnStatic(range, {
-      category = "Unarmed",
-      type     = "Hummer",
-      name     = range.id .. "_STR_" .. i,
-      x        = c.x,
-      y        = c.z,
-      heading  = track
-    })
-  end
-end
-
-Layouts.MIXED = function(range, center, track)
-  Layouts.ISO(range, center, track)
-  Layouts.STRAFE(range, center:Translate(200, track + 90), track)
-end
-
-local function CreateMovingGroup(range, center, track, unitType, suffix)
-  -- 3km crossing path perpendicular to range axis
-  local startPt = center:Translate(1500, track - 90)
-  local endPt   = center:Translate(1500, track + 90)
-
-  local units = {}
-  for i = 1, 5 do
-    -- Column formation trailing the start point
-    local uPos = startPt:Translate((i-1)*50, track - 90)
-    table.insert(units, {
-      name = range.id .. "_" .. suffix .. "_" .. i,
-      type = unitType,
-      x = uPos.x,
-      y = uPos.z,
-      heading = (track + 90) * (math.pi/180),
-      skill = "High"
-    })
-  end
-
-  local route = {
-    points = {
-      [1] = {
-        x = startPt.x,
-        y = startPt.z,
-        action = "Off Road",
-        speed = 11, -- ~40 kph
-        type = "Turning Point",
-      },
-      [2] = {
-        x = endPt.x,
-        y = endPt.z,
-        action = "Off Road",
-        speed = 11,
-        type = "Turning Point",
+    local route = {
+      points = {
+        [1] = { x = startPt.x, y = startPt.z, action = "Off Road", speed = 11, type = "Turning Point" },
+        [2] = { x = endPt.x, y = endPt.z, action = "Off Road", speed = 11, type = "Turning Point" }
       }
     }
+    
+    local gData = {
+      name = range.id .. "_" .. suffix .. "_GRP",
+      task = "Ground Nothing",
+      route = route,
+      units = units
+    }
+    
+    local group = TCS.Spawn.GroupFromData(gData, cat, range.enemyCoalition)
+    if group then
+      table.insert(range.mobiles, group)
+    end
+
+  -- Activity: Default (non-moving) or POPUP
+  else
+    for i, pos in ipairs(coords) do
+      local rawType = cfg.target_pool[math.random(#cfg.target_pool)]
+      local entry = ResolveCatalogEntry({id=rawType})
+      local finalType = rawType
+      local cat = Group.Category.GROUND
+      
+      if entry then
+        if entry.unit_types then finalType = entry.unit_types[1] end
+        if entry.domain == "SEA" then cat = Group.Category.SHIP end
+      end
+
+      local sName = range.id .. "_" .. suffix .. "_" .. i
+      
+      if cfg.activity == "POPUP" then
+         -- Spawn as mobile group for popup logic (simplified here as static group for now)
+         local groupName = sName .. "_GRP"
+         local gData = {
+           name = groupName,
+           task = "Ground Defence",
+           units = {{ name = sName, type = finalType, x = pos.x, y = pos.z, heading = hdgRad, skill = "High" }},
+           route = {
+             points = {
+               [1] = {
+                 x = pos.x,
+                 y = pos.z,
+                 action = "Off Road",
+                 type = "Turning Point",
+                 speed = 0
+               }
+             }
+           }
+         }
+         
+         local group = TCS.Spawn.GroupFromData(gData, cat, range.enemyCoalition)
+         if group then
+           table.insert(range.mobiles, group)
+         end
+
+         -- Post-spawn logic to set ROE and detection
+         SCHEDULER:New(nil, function()
+             local group = GROUP:FindByName(groupName)
+             if group and group:IsAlive() then
+                 group:OptionROE(ENUMS.ROE.WeaponHold)
+
+                 local detection = DETECTION_AREAS:New(group, 3000) -- 3km bubble
+                 detection:SetHandler(function(detected_group)
+                     if detected_group:IsPlayer() then
+                         group:OptionROE(ENUMS.ROE.WeaponFree)
+                         MESSAGE:New("HOSTILE! Threat is engaging!", 10):ToAll()
+                         detection:Destroy()
+                     end
+                 end):Start()
+                 range.detectors = range.detectors or {}
+                 table.insert(range.detectors, detection)
+             end
+         end, {}, 1)
+      else
+         local sData = {
+           category = TCS.Spawn.GetStaticCategory(finalType),
+           type = finalType,
+           name = sName,
+           x = pos.x,
+           y = pos.z,
+           heading = hdgRad
+         }
+         local obj = TCS.Spawn.StaticFromData(sData, range.enemyCoalition)
+         if obj then table.insert(range.statics, obj) end
+         
+         table.insert(spawnedNames, sName)
+      end
+    end
+
+    -- Register targets with MOOSE Range for scoring
+    if range.moose and #spawnedNames > 0 then
+      if cfg.purpose == "BOMB" or cfg.purpose == "MIXED" then
+        range.moose:AddBombingTargets(spawnedNames)
+      end
+      if cfg.purpose == "STRAFE" or cfg.purpose == "MIXED" then
+        for _, n in ipairs(spawnedNames) do
+          range.moose:AddStrafePit(n, cfg.strafe_length or 300, 300)
+        end
+      end
+    end
+  end
+end
+
+function TCS.RANGE.ApplyConfiguration(range, center, heading, configKey)
+  local cfg = TCS.RANGE_CONFIG and TCS.RANGE_CONFIG[configKey]
+  
+  if not cfg then
+    env.warning("TCS.RANGE: Unknown configuration '" .. tostring(configKey) .. "'")
+    return
+  end
+
+  local batchId = math.random(10000, 99999)
+
+  if cfg.complex and cfg.components then
+    for i, sub in ipairs(cfg.components) do
+      local subCenter = center
+      if sub.offset then
+        -- Apply offset relative to heading
+        local ox = sub.offset.x or 0 -- Forward
+        local oz = sub.offset.z or 0 -- Right
+        local rad = math.rad(heading)
+        local dx = ox * math.cos(rad) - oz * math.sin(rad)
+        local dz = ox * math.sin(rad) + oz * math.cos(rad)
+        subCenter = { x = center.x + dx, z = center.z + dz }
+        -- Add helper methods if center is not a MOOSE coord
+        function subCenter:Translate(d, h) 
+           local r = math.rad(h)
+           return { x = self.x + d * math.cos(r), z = self.z + d * math.sin(r) } 
+        end
+      end
+      ApplySingleConfig(range, subCenter, heading, sub, configKey .. "_" .. batchId .. "_" .. i)
+    end
+  else
+    ApplySingleConfig(range, center, heading, cfg, configKey .. "_" .. batchId)
+  end
+end
+
+--- Generic Range Spawner (TCS Native)
+-- @param name (string) Unique ID for the range
+-- @param owner (string) Owner name (Group name or "SYSTEM")
+-- @param vec3 (table) {x, y, z} center point
+-- @param heading (number) Heading in degrees
+-- @param configKey (string) Configuration key
+function TCS.RANGE.Spawn(name, owner, vec3, heading, configKey)
+  if TCS.RANGE.Ranges[name] then
+    env.warning("TCS.RANGE: Range " .. name .. " already exists.")
+    return
+  end
+
+  local range = {
+    id      = name,
+    owner   = owner,
+    statics = {},
+    mobiles = {},
+    moose   = nil,
+    detectors = {},
+    drawings = {},
+    enemyCoalition = coalition.side.RED, -- Default, could be param
+    centerVec3 = vec3,
+    heading = heading
   }
 
-  SpawnMobile(range, {
-    name = range.id .. "_" .. suffix .. "_GRP",
-    task = "Ground Nothing",
-    route = route,
-    units = units
-  })
-end
+  TCS.RANGE.Ranges[name] = range
+  TCS.RANGE.CreateMooseRange(range, name)
 
-Layouts.MOVING = function(range, center, track)
-  CreateMovingGroup(range, center, track, "Ural-375", "MOV")
-end
+  -- Draw on F10 Map
+  local markIdCircle = math.random(100000, 999999)
+  local markIdText = math.random(100000, 999999)
+  
+  -- Draw a 1.5 NM (approx 2800m) circle
+  trigger.action.circleToAll(-1, markIdCircle, vec3, 2800, {1, 0, 0, 1}, {1, 0, 0, 0.15}, 1, true)
+  table.insert(range.drawings, markIdCircle)
 
-Layouts.MOVING_HOSTILE = function(range, center, track)
-  CreateMovingGroup(range, center, track, "BMP-2", "MOV_H")
-end
+  -- Draw Label
+  trigger.action.textToAll(-1, markIdText, vec3, {1, 1, 1, 1}, {0, 0, 0, 0.5}, 11, "RANGE: " .. configKey, true)
+  table.insert(range.drawings, markIdText)
 
-Layouts.POPUP = function(range, center, track)
-  local units = {}
-  -- SA-13 Strela-10M3
-  table.insert(units, {
-    name = range.id .. "_SAM",
-    type = "Strela-10M3",
-    x = center.x,
-    y = center.z,
-    heading = track * (math.pi/180),
-    skill = "High"
-  })
-
-  SpawnMobile(range, {
-    name = range.id .. "_SAM_GRP",
-    task = "Ground Nothing",
-    units = units
-  })
-
-  -- Add some ISO containers as targets
-  Layouts.ISO(range, center:Translate(400, track), track)
+  local center = COORDINATE:NewFromVec3(vec3)
+  TCS.RANGE.ApplyConfiguration(range, center, heading, configKey)
 end
 
 ---------------------------------------------------------------------
 -- Public API
 ---------------------------------------------------------------------
 
-function A2G_RANGE.Build(groupName, unitName, layout)
+function TCS.RANGE.Create(groupName, unitName, configKey)
   local group = GROUP:FindByName(groupName)
   local unit  = UNIT:FindByName(unitName)
   if not group or not unit then return end
 
   -- Ownership check
-  if A2G_RANGE.Ranges[groupName] then
-    MESSAGE:New("You already own a range.", 8):ToGroup(group)
+  local existingRange = TCS.RANGE.Ranges[groupName]
+  if existingRange then
+    local center = COORDINATE:NewFromVec3(existingRange.centerVec3)
+    TCS.RANGE.ApplyConfiguration(existingRange, center, existingRange.heading, configKey)
+    trigger.action.smoke(existingRange.centerVec3, trigger.smokeColor.Green)
+    if group and TCS.A2G.JTAC and TCS.A2G.JTAC.PushWaypoint then
+      TCS.A2G.JTAC.PushWaypoint(group, center, "RANGE")
+    end
+    MESSAGE:New("Range extended with " .. configKey, 10):ToGroup(group)
     return
   end
 
-  local anchor, dist = FindAnchorAhead(unit)
+  -- Determine domain based on player location
+  local domain = "LAND"
+  local p = unit:GetVec3()
+  if p and land.getSurfaceType({x=p.x, y=p.z}) == land.SurfaceType.WATER then
+    domain = "SEA"
+  end
+
+  local anchor, dist = TCS.Placement.Resolve(unit, domain)
   if not anchor then
     MESSAGE:New("No suitable range location found.", 8):ToGroup(group)
     return
   end
 
-  local pCoal = group:GetCoalition()
-  local eCoal = (pCoal == coalition.side.BLUE) and coalition.side.RED or coalition.side.BLUE
+  -- Delegate to generic spawner
+  TCS.RANGE.Spawn(groupName, groupName, anchor:GetVec3(), unit:GetHeading(), configKey)
 
-  local range = {
-    id      = groupName,
-    owner   = groupName,
-    statics = {},
-    mobiles = {},
-    moose   = nil,
-    enemyCoalition = eCoal
-  }
+  if group and TCS.A2G.JTAC and TCS.A2G.JTAC.PushWaypoint then
+    TCS.A2G.JTAC.PushWaypoint(group, anchor, "RANGE")
+  end
 
-  A2G_RANGE.Ranges[groupName] = range
-  CreateMooseRange(range, groupName)
-
-  Layouts[layout](range, anchor, unit:GetHeading())
-
-  MESSAGE:New(
-    string.format("RANGE BUILT %d NM AHEAD (%s)", dist, layout),
-    10
-  ):ToAll()
+  local msg = string.format("RANGE BUILT %d NM AHEAD (%s)", dist, configKey)
+  
+  -- Notify Session or Group
+  local session = TCS.SessionManager:GetSessionForGroup(group)
+  if session then
+    session:Broadcast(msg, 10)
+  else
+    MESSAGE:New(msg, 10):ToGroup(group)
+  end
 end
 
-function A2G_RANGE.Reset(groupName)
+function TCS.RANGE.Reset(groupName)
   DestroyRange(groupName)
 end
 
@@ -395,22 +491,22 @@ end
 -- Owner death / despawn cleanup
 ---------------------------------------------------------------------
 
-A2G_RANGE.Handler = EVENTHANDLER:New()
+TCS.RANGE.Handler = EVENTHANDLER:New()
 
-A2G_RANGE.Handler:HandleEvent(EVENTS.Dead)
-A2G_RANGE.Handler:HandleEvent(EVENTS.Crash)
-A2G_RANGE.Handler:HandleEvent(EVENTS.Ejection)
-A2G_RANGE.Handler:HandleEvent(EVENTS.PlayerLeaveUnit)
+TCS.RANGE.Handler:HandleEvent(EVENTS.Dead)
+TCS.RANGE.Handler:HandleEvent(EVENTS.Crash)
+TCS.RANGE.Handler:HandleEvent(EVENTS.Ejection)
+TCS.RANGE.Handler:HandleEvent(EVENTS.PlayerLeaveUnit)
 
-function A2G_RANGE.Handler:OnEvent(event)
+function TCS.RANGE.Handler:OnEvent(event)
   if not event.IniGroup then return end
   local groupName = event.IniGroup:GetName()
 
-  if A2G_RANGE.Ranges[groupName] then
+  if TCS.RANGE.Ranges[groupName] then
     DestroyRange(groupName)
   end
 end
 
 -- Namespace Alias
-TCS = TCS or {}; TCS.A2G = TCS.A2G or {}
-TCS.A2G.Range = A2G_RANGE
+TCS.A2G = TCS.A2G or {}
+TCS.A2G.Range = TCS.RANGE

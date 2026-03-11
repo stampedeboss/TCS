@@ -1,123 +1,218 @@
--- tcs_a2a_controller.lua
--- Manages the state and communication for an A2A engagement.
+---------------------------------------------------------------------
+-- TCS A2A CONTROLLER
+-- Provides AWACS/GCI functionality for A2A scenarios.
+---------------------------------------------------------------------
+env.info("TCS(A2A.CONTROLLER): loading")
+
+TCS = TCS or {}
+TCS.A2A = TCS.A2A or {}
 
 local CFG = TCS.A2A.Config
-local Sessions = TCS.Sessions
-local A2A = TCS.A2A
+local AWACS_CFG = TCS.Config and TCS.Config.AWACS
+local UPDATE_INTERVAL = 30 -- Seconds between automatic BRAA updates
 
-TCS.A2A.Controller = {}
+-- Helper to resolve BRAA string from either a Coordinate or a Group/Unit
+local function ResolveBraa(refUnit, target)
+  if not refUnit or not refUnit:IsAlive() then return nil end
+  if not target then return nil end
 
-local function _tryRouteRTB(spawnGroup)
-  if not CFG.A2A_CTRL.USE_RTB_ROUTE then return false end
-  if not spawnGroup or not spawnGroup:IsAlive() then return false end
-  local c = spawnGroup:GetCoordinate()
-  local v2 = GetNearestAirbaseVec2(c)
-  if not v2 then return false end
-  pcall(function() spawnGroup:TaskRouteToVec2(v2, 250, "Cone") end)
-  return true
-end
-
-function TCS.A2A.Controller.AutoManage(rec, banditGroups, descriptor, isTerminatedFn, onTerminateFn, sessionName)
-  local gates = CFG.A2A_CTRL
-  local group = rec.Group
-  local unit  = rec.Unit
-
-  local function sayToAll(text, seconds)
-    if sessionName then
-      Sessions:Broadcast(sessionName, text, seconds)
-    else
-      MsgToGroup(group, text, seconds)
+  -- If target is a Group or Unit, use the full BRAA with Aspect
+  if (type(target) == "table" and (target.ClassName == "GROUP" or target.ClassName == "UNIT")) then
+    if target:IsAlive() then
+      return TCS.A2A.BraaText({Unit=refUnit}, target)
     end
+    return nil
   end
 
-  local function ctrlCallAll(refGroup, descriptorText, brevityText, includeBraa)
-    if sessionName and CFG.SESSION and CFG.SESSION.BROADCAST_BRAA_TO_ALL and Sessions then
-      Sessions:ForEachMemberRec(sessionName, function(mrec)
-        if not mrec or not mrec.Unit or not mrec.Unit:IsAlive() then return end
-        local braa = ""
-        if includeBraa and refGroup and refGroup:IsAlive() then
-          braa = A2A.BraaText(mrec, refGroup)
+  -- If target is a Coordinate (fallback for simple BRA)
+  if target.GetVec3 then
+    local p = refUnit:GetCoordinate()
+    local bearing = math.floor((p:HeadingTo(target) % 360) + 0.5)
+    local rangeNM = math.floor((p:Get2DDistance(target) * 0.000539957) + 0.5)
+    local vec3 = target:GetVec3()
+    local altFt = math.floor((vec3.y * 3.28084 / 1000) + 0.5) * 1000
+    return string.format("BRA %03d for %d, %d thousand", bearing, rangeNM, altFt/1000)
+  end
+
+  return nil
+end
+
+-- Helper to parse player names (Ported from carrier_ops.lua)
+local function ParseCallsign(playerName)
+    if not playerName or playerName == "" then return "Unknown" end
+
+    local callsign = playerName
+
+    -- 1. Handle the '|' separator (often a player name or tag separator)
+    if string.find(callsign, "|") then
+        local parts = {}
+        -- Split the string by '|' and collect non-empty, trimmed parts
+        for part in string.gmatch(callsign, "([^|]+)") do
+            local trimmed_part = part:gsub("^%s*(.-)%s*$", "%1")
+            if trimmed_part ~= "" then
+                table.insert(parts, trimmed_part)
+            end
         end
-        AwacsControllerCallBraa(mrec.Group, mrec.Unit, refGroup and refGroup:GetCoordinate() or (mrec.Unit and mrec.Unit:GetCoordinate()), descriptorText, braa, brevityText)
-      end)
-      return
+
+        if #parts > 0 then
+            local firstPart = parts[1]
+            local lastPart = parts[#parts]
+            
+            -- Heuristic 1: If first part looks like a tactical callsign (e.g. "Viper 1-1"), prefer it.
+            if firstPart:match("%s%d+%-%d+$") then
+                callsign = firstPart
+            -- Heuristic 2: If the last part is not purely numeric, assume it's the callsign (e.g. "Squadron | Name").
+            elseif not lastPart:match("^[0-9]+$") then
+                callsign = lastPart
+            -- Heuristic 3: Otherwise (e.g. "Name | Modex"), use the first part.
+            else
+                callsign = firstPart
+            end
+        end
     end
 
-    local braa = ""
-    if includeBraa and refGroup and refGroup:IsAlive() then
-      braa = A2A.BraaText(rec, refGroup)
-    end
-    AwacsControllerCallBraa(group, unit, refGroup and refGroup:GetCoordinate() or (unit and unit:GetCoordinate()), descriptorText, braa, brevityText)
-  end
+    -- 2. Remove leading common tags/prefixes like [TAG], {TAG}, <TAG>
+    callsign = callsign:gsub("^%s*%[[^%]]+%]", "") -- Remove leading [TAG]
+    callsign = callsign:gsub("^%s*%{[^%}]+%}", "") -- Remove leading {TAG}
+    callsign = callsign:gsub("^%s*<[^>]+>", "")   -- Remove leading <TAG>
 
-  if not group or not unit then return end
-
-  local t0 = timer.getTime()
-  local committed, hostile = false, false
-  local pushed, pressed, merged, kio = false, false, false, false
-  local terminated = false
-  local lastCtrlTime = 0
-
-  local function canTalk()
-    return (timer.getTime() - lastCtrlTime) >= (gates.MIN_CTRL_SPACING_SEC or 10)
-  end
-  local function markTalk() lastCtrlTime = timer.getTime() end
-
-  local function terminate(reason)
-    if terminated then return end
-    terminated = true
-
-    if onTerminateFn then pcall(function() onTerminateFn(reason) end) end
-
-    if canTalk() then
-      ctrlCallAll(nil, descriptor or "BANDITS", "TERMINATE", false)
-      markTalk()
+    -- 3. Special Rule: If [285] is found (and wasn't leading), strip it and everything after
+    local idx_285 = string.find(callsign, "%[285%]")
+    if idx_285 then
+        callsign = callsign:sub(1, idx_285 - 1)
     end
 
-    for _, g in ipairs(banditGroups) do
-      if g and g:IsAlive() then _tryRouteRTB(g) end
+    -- 4. Remove remaining clan tags and similar constructs from anywhere
+    callsign = callsign:gsub("%s*%[[^%]]+%]", "") -- [TAG]
+    callsign = callsign:gsub("%s*%{[^%}]+%}", "") -- {TAG}
+    callsign = callsign:gsub("%s*<[^>]+>", "")   -- <TAG>
+    
+    -- 5. Remove trailing parenthetical info & Final trim
+    callsign = callsign:gsub("%s*%(.-%)%s*$", "") -- Remove trailing ()
+    callsign = callsign:gsub("^%s*(.-)%s*$", "%1")
+
+    -- 6. Fallback to original name if parsing results in an empty string
+    callsign = (callsign ~= "") and callsign or playerName
+
+    -- 7. Ensure tactical suffix (e.g. " 1-1") exists
+    if not callsign:match("%s%d+%-%d+$") then
+        callsign = callsign .. " 1-1"
     end
 
-    SCHEDULER:New(nil, function()
-      for _, g in ipairs(banditGroups) do
-        if g and g:IsAlive() then g:Destroy() end
-      end
-    end, {}, gates.RTB_GRACE_SEC or 180, nil)
-  end
-
-  SCHEDULER:New(nil, function()
-    if terminated then return end
-    if isTerminatedFn and isTerminatedFn() then terminate("MODE ENDED"); return end
-
-    if not unit or not unit:IsAlive() then
-      terminate("PLAYER DOWN")
-      return
-    end
-    if not A2A.AnyAlive(banditGroups) then return end
-
-    if (timer.getTime() - t0) > (gates.MAX_ENGAGE_SEC or 900) then
-      terminate("TIMEOUT")
-      return
-    end
-
-    local ref, dnm = A2A.ClosestBanditAndRange(rec, banditGroups)
-    if not ref or not dnm then return end
-
-    local desc = hostile and "HOSTILE" or (descriptor or "BANDITS")
-
-    if (not committed) and dnm <= (gates.COMMIT_GATE_NM or 60) and canTalk() then committed = true; ctrlCallAll(ref, desc, "COMMIT", false); markTalk() end
-    if committed and (not hostile) and dnm <= (gates.HOSTILE_GATE_NM or 45) and canTalk() then hostile = true; ctrlCallAll(ref, "DECLARE", "HOSTILE", false); markTalk(); SCHEDULER:New(nil, function() if not ref or not ref:IsAlive() or not unit or not unit:IsAlive() then return end; ctrlCallAll(ref, "HOSTILE", "CLEARED TO ENGAGE", true); markTalk() end, {}, gates.DECLARE_DELAY_SEC or 6, nil) end
-
-    local function callAfterHostile(word) if not canTalk() then return end; local braa = hostile and A2A.BraaText(rec, ref) or ""; ctrlCallAll(ref, desc, word, hostile); markTalk() end
-
-    if committed and (not pushed) and dnm <= (gates.PUSH_GATE_NM or 40) then pushed = true; callAfterHostile("PUSH") end
-    if committed and (not pressed) and dnm <= (gates.PRESS_GATE_NM or 25) then pressed = true; callAfterHostile("PRESS") end
-    if committed and (not merged) and dnm <= (gates.MERGE_GATE_NM or 15) then merged = true; callAfterHostile("MERGED") end
-    if committed and merged and (not kio) and dnm <= (gates.KIO_GATE_NM or 10) then kio = true; callAfterHostile("KNOCK-IT-OFF ADVISORY") end
-
-    if committed and dnm >= (gates.TERMINATE_GATE_NM or 120) then terminate("BANDITS OUT OF FIGHT"); return end
-  end, {}, 5, 5)
+    return callsign
 end
 
--- Alias for backward compatibility with CAP/Escort/Sweep modules
-TCS.A2A.AutoManageBandits_Controller = TCS.A2A.Controller.AutoManage
+local function GetCallsign(unit, group)
+  -- 1. Try Player Name
+  local playerName = nil
+  if unit and unit.GetPlayerName then playerName = unit:GetPlayerName() end
+  if not playerName and group and group.GetPlayerName then playerName = group:GetPlayerName() end
+  
+  if playerName then return ParseCallsign(playerName) end
+
+  -- 2. Try Unit Callsign (DCS standard for AI)
+  if unit and unit.GetCallsign then
+    local cs = unit:GetCallsign()
+    if cs and cs ~= "" then return cs end
+  end
+
+  -- 3. Fallback to Group Name
+  if group then return group:GetName() end
+  return "Unknown"
+end
+
+-- Single Call
+function TCS.A2A.AwacsControllerCallBraa(group, unit, target, label, subLabel, state)
+  if not group then return end
+  local u = unit or group:GetUnit(1)
+  if not u then return end
+  
+  local braa = ResolveBraa(u, target)
+  if braa then
+    local awacsLabel = (AWACS_CFG and AWACS_CFG.Label) or "MAGIC"
+    local callsign = GetCallsign(u, group)
+    local text = string.format("%s: %s, %s. %s", awacsLabel, callsign, label, braa)
+    if subLabel and subLabel ~= "" then text = text .. ", " .. subLabel end
+    if state and state ~= "" then text = text .. ". " .. state end
+    
+    MESSAGE:New(text, 10):ToGroup(group)
+    if TCS.AWACS and TCS.AWACS.Say then TCS.AWACS.Say(text) end
+  end
+end
+
+-- Dispatch/Tasking Call (e.g. for Sweep PUSH)
+function TCS.A2A.AwacsDispatchNATO(group, unit, location, action, type)
+  if not group then return end
+  local locStr = (location and location.ToStringBullseye) and location:ToStringBullseye() or "Target"
+  local awacsLabel = (AWACS_CFG and AWACS_CFG.Label) or "MAGIC"
+  local callsign = GetCallsign(unit or group:GetUnit(1), group)
+  local text = string.format("%s: %s, %s %s at %s.", awacsLabel, callsign, action, type, locStr)
+  MESSAGE:New(text, 15):ToGroup(group)
+  if TCS.AWACS and TCS.AWACS.Say then TCS.AWACS.Say(text) end
+end
+
+-- Session-based Periodic Updater
+function TCS.A2A.StartAwacsUpdatesSession(session, targetResolver, label, state)
+  if not session then return end
+  
+  local function update()
+    if not session.ActiveScenarios then return end -- Session ended?
+    
+    -- Find a valid target (Group or Coord)
+    local target = targetResolver()
+    if not target then return end 
+    
+    -- Broadcast to session using Lead as reference
+    local leadName = session.LeadGroupName
+    local leadGroup = leadName and GROUP:FindByName(leadName)
+    if leadGroup then
+       local u = leadGroup:GetUnit(1)
+       if u and u:IsAlive() then
+          local braa = ResolveBraa(u, target)
+          if braa then
+             local awacsLabel = (AWACS_CFG and AWACS_CFG.Label) or "MAGIC"
+             local callsign = GetCallsign(u, leadGroup)
+             local text = string.format("%s: %s, %s. %s", awacsLabel, callsign, label, braa)
+             TCS.A2A.NotifySession(session, text, 10)
+          end
+       end
+    end
+    
+    timer.scheduleFunction(update, nil, timer.getTime() + UPDATE_INTERVAL)
+  end
+  
+  timer.scheduleFunction(update, nil, timer.getTime() + UPDATE_INTERVAL)
+end
+
+-- Group-based Periodic Updater (Legacy)
+function TCS.A2A.StartAwacsUpdates(group, unit, targetResolver, label, state)
+  if not group then return end
+  
+  local function update()
+    if not group or not group:IsAlive() then return end
+    local u = unit or group:GetUnit(1)
+    
+    local target = targetResolver()
+    if not target then return end
+    
+    local braa = ResolveBraa(u, target)
+    if braa then
+       local awacsLabel = (AWACS_CFG and AWACS_CFG.Label) or "MAGIC"
+       local callsign = GetCallsign(u, group)
+       local text = string.format("%s: %s, %s. %s", awacsLabel, callsign, label, braa)
+       MESSAGE:New(text, 10):ToGroup(group)
+       if TCS.AWACS and TCS.AWACS.Say then TCS.AWACS.Say(text) end
+    end
+    
+    timer.scheduleFunction(update, nil, timer.getTime() + UPDATE_INTERVAL)
+  end
+  
+  timer.scheduleFunction(update, nil, timer.getTime() + UPDATE_INTERVAL)
+end
+
+-- Placeholder for AutoManage if needed by modules (currently logic is inside modules or unused)
+function TCS.A2A.AutoManageBandits_Controller(rec, spawnedGroups, label, isOverFunc, onUpdate, session)
+  -- Logic handled by periodic updates + module lifecycle
+end
+
+env.info("TCS(A2A.CONTROLLER): ready")

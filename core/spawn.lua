@@ -5,12 +5,40 @@ TCS=TCS or {}; TCS.Spawn={}
 -- Backwards compatibility for A2G
 TCS.A2G = TCS.A2G or {}; TCS.A2G.Spawn = TCS.Spawn
 
-local function GetStaticCategory(typeName)
+-- Formation Spacing Utility
+TCS.SpawnSpacing = TCS.SpawnSpacing or {}
+function TCS.SpawnSpacing.GetPoints(formation, count, spacing)
+  local points = {}
+  spacing = spacing or 50
+  for i = 1, count do
+    -- Default to Echelon Right
+    local x = (i - 1) * -spacing -- Back
+    local y = (i - 1) * spacing  -- Right
+    table.insert(points, {x = x, y = y})
+  end
+  return points
+end
+
+function TCS.Spawn.GetStaticCategory(typeName)
   if string.find(typeName, "Warehouse") or string.find(typeName, "Depot") or string.find(typeName, "Tank") then
     return "Warehouses"
   end
   -- Default for Bunkers, Outposts, Armed House
   return "Fortifications"
+end
+
+local function GetCountryForCoalition(side)
+  local prefs = (side == coalition.side.RED) 
+    and {country.id.CJTF_RED, country.id.RUSSIA, country.id.USSR, country.id.CHINA}
+    or  {country.id.CJTF_BLUE, country.id.USA, country.id.UK}
+    
+  for _, cID in ipairs(prefs) do
+    if cID and coalition.getCountryCoalition(cID) == side then return cID end
+  end
+  for _, cID in pairs(country.id) do
+    if coalition.getCountryCoalition(cID) == side then return cID end
+  end
+  return (side == coalition.side.RED) and country.id.RUSSIA or country.id.USA
 end
 
 function TCS.Spawn.Group(typeOrName, coord, opts, categoryName, count)
@@ -26,9 +54,9 @@ function TCS.Spawn.Group(typeOrName, coord, opts, categoryName, count)
 
   -- 2. Setup Common Data
   local coal = opts.coalition or coalition.side.RED
-  local countryID = (coal == coalition.side.RED) and country.id.RUSSIA or country.id.USA
+  local countryID = opts.country or GetCountryForCoalition(coal)
   local point = coord and coord:GetVec2() or {x=0, y=0}
-  local name = "TCS_DYN_" .. typeOrName .. "_" .. math.random(100000)
+  local name = opts.name or ("TCS_DYN_" .. typeOrName .. "_" .. math.random(100000))
   local heading = opts.heading and (opts.heading * (math.pi/180)) or (math.random(0, 359) * (math.pi/180))
 
   -- 3. Static Objects (Structures)
@@ -39,7 +67,7 @@ function TCS.Spawn.Group(typeOrName, coord, opts, categoryName, count)
       x = point.x,
       y = point.y,
       heading = heading,
-      category = GetStaticCategory(typeOrName),
+      category = TCS.Spawn.GetStaticCategory(typeOrName),
     }
     local s = coalition.addStaticObject(countryID, staticData)
     if s then
@@ -49,10 +77,11 @@ function TCS.Spawn.Group(typeOrName, coord, opts, categoryName, count)
   end
 
   -- 4. Dynamic Group Spawn
+  local domain = categoryName or (opts and opts.domain)
   local catID = Group.Category.GROUND
-  if categoryName and (string.find(categoryName, "SHIP") or string.find(categoryName, "MAR")) then
+  if domain and (string.find(domain, "SHIP") or string.find(domain, "MAR") or domain == "SEA") then
     catID = Group.Category.SHIP
-  elseif categoryName and (string.find(categoryName, "AIR") or string.find(categoryName, "PLANE")) then
+  elseif domain and (string.find(domain, "AIR") or string.find(domain, "PLANE")) then
     catID = Group.Category.AIRPLANE
   end
   
@@ -97,9 +126,138 @@ function TCS.Spawn.Group(typeOrName, coord, opts, categoryName, count)
     })
   end
   
-  local gDCS = coalition.addGroup(countryID, catID, groupData)
-  if gDCS then
-    return GROUP:FindByName(name)
+  -- Ensure a basic route exists
+  if not groupData.route then
+    if catID == Group.Category.AIRPLANE then
+    local rAlt = alt or 2000
+    local rSpeed = opts.speed or 150
+    groupData.route = { 
+      points = { 
+        [1] = {
+          x = point.x,
+          y = point.y,
+          alt = rAlt,
+          type = "Turning Point",
+          action = "Turning Point",
+          speed = rSpeed,
+          task = { 
+            id = "ComboTask", 
+            params = { 
+              tasks = {
+                [1] = {
+                  enabled = true,
+                  auto = false,
+                  id = "EngageTargets",
+                  number = 1,
+                  params = {
+                    maxDist = 40000,
+                    targetTypes = { "Air" },
+                    priority = 0
+                  }
+                },
+                [2] = {
+                  enabled = true,
+                  auto = false,
+                  id = "Orbit",
+                  number = 2,
+                  params = {
+                    pattern = "Circle",
+                    altitude = rAlt,
+                    speed = rSpeed
+                  }
+                }
+              } 
+            } 
+          }
+        },
+        [2] = {
+           x = point.x + 1000,
+           y = point.y,
+           alt = rAlt,
+           type = "Turning Point",
+           action = "Turning Point",
+           speed = rSpeed,
+           task = { id = "ComboTask", params = { tasks = {} } }
+        }
+      } 
+    }
+    else
+      -- Ground/Ship default route (Stationary)
+      groupData.route = {
+        points = {
+          [1] = {
+            x = point.x,
+            y = point.y,
+            action = "Off Road",
+            type = "Turning Point",
+            speed = 0
+          }
+        }
+      }
+    end
+  end
+
+  coalition.addGroup(countryID, catID, groupData)
+  
+  if Group.getByName(name) then
+    return GROUP:FindByName(name) or GROUP:New(name)
+  end
+  env.error("TCS(SPAWN): Failed to spawn group '" .. tostring(name) .. "' (Group.getByName returned nil)")
+  return nil
+end
+
+
+--- Spawns a group from a raw data template (TCS native).
+-- @param name (string) The name for the new group.
+-- @param template (table) A table containing `category`, `units`, and optional `route`.
+-- @param pos (table) A table with {x, y} map coordinates for the spawn point.
+-- @param heading (number) The initial heading in degrees.
+-- @param side (number|nil) Coalition side (default: RED).
+function TCS.Spawn.GroupFromTable(name, template, pos, heading, side)
+  local data = {
+    name = name,
+    task = template.category == Group.Category.AIRPLANE and "CAP" or "Ground Nothing",
+    units = {}
+  }
+
+  for i, unitType in ipairs(template.units) do
+    local offset = (i - 1) * 20
+    table.insert(data.units, {
+      name = name .. "_U" .. i,
+      type = unitType,
+      x = pos.x + offset,
+      y = pos.y + offset,
+      heading = math.rad(heading),
+      skill = "High"
+    })
+  end
+
+  if template.route then data.route = template.route end
+  
+  local cty = GetCountryForCoalition(side or coalition.side.RED)
+  coalition.addGroup(cty, template.category, data)
+  return GROUP:FindByName(name)
+end
+
+--- Low-level wrapper to spawn a group from raw DCS data table.
+-- Ensures correct Country ID mapping.
+function TCS.Spawn.GroupFromData(groupData, category, side)
+  local cty = GetCountryForCoalition(side or coalition.side.RED)
+  coalition.addGroup(cty, category, groupData)
+  
+  if Group.getByName(groupData.name) then
+    return GROUP:FindByName(groupData.name) or GROUP:New(groupData.name)
   end
   return nil
 end
+
+--- Low-level wrapper to spawn a static from raw DCS data table.
+-- Ensures correct Country ID mapping.
+function TCS.Spawn.StaticFromData(staticData, side)
+  local cty = GetCountryForCoalition(side or coalition.side.RED)
+  local res = coalition.addStaticObject(cty, staticData)
+  if STATIC then return STATIC:FindByName(staticData.name, false) end
+  return res
+end
+
+env.info("TCS(SPAWN): ready")

@@ -8,28 +8,35 @@ function TCS.Menu.BuildA2A(rec)
   local root = TCS.Menu.Groups[g]
   if not root then return end
 
+  -- Helper to ensure session context is passed to modules
+  local function getSessionRec()
+    local session = TCS.SessionManager and TCS.SessionManager:GetOrCreateSessionForGroup(rec.Group)
+    -- Create a shallow copy of rec with Session added
+    return { Group = rec.Group, Unit = rec.Unit, Session = session }
+  end
+
   MENU_GROUP_COMMAND:New(rec.Group, "Intercept", root.A2A, function()
-    if A2A and A2A.StartIntercept then
-      A2A.StartIntercept(rec.Group)
+    if TCS.A2A and TCS.A2A.INTERCEPT and TCS.A2A.INTERCEPT.MenuRequest then
+      TCS.A2A.INTERCEPT.MenuRequest(rec.Group)
     end
   end)
 
   MENU_GROUP_COMMAND:New(rec.Group, "CAP", root.A2A, function()
     if TCS.A2A.CAP then
-      TCS.A2A.CAP:Start(rec)
+      TCS.A2A.CAP:Start(getSessionRec())
     end
   end)
 
   MENU_GROUP_COMMAND:New(rec.Group, "Sweep", root.A2A, function()
     if TCS.A2A.SWEEP then
-      TCS.A2A.SWEEP:Start(rec)
+      TCS.A2A.SWEEP:Start(getSessionRec())
     end
   end)
 
   local escort = MENU_GROUP:New(rec.Group, "Escort", root.A2A)
 
   local function startEscort(pkgName)
-    if TCS.A2A.ESCORT then TCS.A2A.ESCORT:Start(rec, pkgName) end
+    if TCS.A2A.ESCORT then TCS.A2A.ESCORT:Start(getSessionRec(), pkgName) end
   end
 
   MENU_GROUP_COMMAND:New(rec.Group, "Random", escort, function()

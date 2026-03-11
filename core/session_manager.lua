@@ -22,88 +22,11 @@ TCS.SessionManager = {}
 TCS.SessionManager.__index = TCS.SessionManager
 
 ---------------------------------------------------------------------
--- TCS.Session Class
----------------------------------------------------------------------
-TCS.Session = {}
-TCS.Session.__index = TCS.Session
-
-function TCS.Session:New(name, leadGroupName)
-  local o = {
-    Name = name,
-    LeadGroupName = leadGroupName,
-    Members = {},     -- [groupName] = true
-    ActiveModes = {}, -- [key] = modeObj (A2A)
-  }
-  setmetatable(o, TCS.Session)
-  if leadGroupName then o.Members[leadGroupName] = true end
-  return o
-end
-
-function TCS.Session:GetName() return self.Name end
-
-function TCS.Session:IsLead(groupName)
-  return self.LeadGroupName == groupName
-end
-
-function TCS.Session:AddMember(groupName)
-  self.Members[groupName] = true
-  if not self.LeadGroupName then self.LeadGroupName = groupName end
-end
-
-function TCS.Session:RemoveMember(groupName)
-  self.Members[groupName] = nil
-  if self.LeadGroupName == groupName then
-    self.LeadGroupName = nil
-    -- Promote next available member
-    for m in pairs(self.Members) do
-      self.LeadGroupName = m
-      local g = GROUP:FindByName(m)
-      if g then MsgToGroup(g, "You are now Session " .. self.Name .. " LEAD.", 10) end
-      break
-    end
-  end
-end
-
-function TCS.Session:IsEmpty()
-  return next(self.Members) == nil
-end
-
-function TCS.Session:Broadcast(text, seconds)
-  for m in pairs(self.Members) do
-    local g = GROUP:FindByName(m)
-    if g then MsgToGroup(g, text, seconds) end
-  end
-end
-
-function TCS.Session:ForEachMemberRec(fn)
-  for m in pairs(self.Members) do
-    local g = GROUP:FindByName(m)
-    if g then
-      -- Try global GetPlayer (A2A)
-      local rec = nil
-      if GetPlayer then rec = GetPlayer(g) end
-      if rec then fn(rec) end
-    end
-  end
-end
-
-function TCS.Session:TerminateModes(reason)
-  for _, m in pairs(self.ActiveModes) do
-    if m and m.Terminate then pcall(function() m:Terminate(reason) end) end
-  end
-  self.ActiveModes = {}
-end
-
----------------------------------------------------------------------
 -- Internal Utilities
 ---------------------------------------------------------------------
 
 local function _log(msg)
   env.info("TCS(SESSION): " .. msg)
-end
-
-local function _getGroupName(group)
-  return group and group.GetName and group:GetName() or nil
 end
 
 ---------------------------------------------------------------------
@@ -120,7 +43,39 @@ local function _cleanupDomainArtifacts(session, groupName)
     end
   end
 
+  -- Explicitly clean A2A/A2G registries if they differ or exist separately
+  if TCS.A2A and TCS.A2A.Registry and TCS.A2A.Registry ~= TCS.Registry then
+     if TCS.A2A.Registry.Cleanup then TCS.A2A.Registry:Cleanup(session) end
+  end
+
   -- SUW / MAR / future domains plug in here
+end
+
+-- Public interface for terminating active scenarios and cleaning up artifacts
+function TCS.SessionManager:TerminateSessionScenarios(session)
+  if not session then return end
+  _log("terminating all scenarios for session " .. session:GetName())
+  session:TerminateModes("USER_TERMINATE")
+
+  -- Explicitly stop all tracked scenarios (cleans up drawings/markers and flags)
+  if session.ActiveScenarios and TCS.Scenario and TCS.Scenario.Stop then
+    local tags = {}
+    for tag, _ in pairs(session.ActiveScenarios) do table.insert(tags, tag) end
+    for _, tag in ipairs(tags) do
+      TCS.Scenario.Stop(session, tag)
+    end
+  end
+
+  -- Clean up Ranges owned by session members
+  if TCS.RANGE and TCS.RANGE.Reset then
+    for memberName, _ in pairs(session.Members) do
+      TCS.RANGE.Reset(memberName)
+    end
+  end
+
+  self:CleanupA2ASpawns(session)
+  self:CleanupA2GSpawns(session)
+  _cleanupDomainArtifacts(session, nil)
 end
 
 ---------------------------------------------------------------------
@@ -131,7 +86,7 @@ TCS.SessionManager.Sessions = {}       -- Name -> Session
 TCS.SessionManager.GroupToSession = {} -- GroupName -> Session
 
 function TCS.SessionManager:CreateSession(name, leadGroup)
-  local gname = _getGroupName(leadGroup)
+  local gname = TCS.SessionUtils.GetGroupName(leadGroup)
   if not gname then return nil end
 
   -- If group already in session, leave it
@@ -153,6 +108,8 @@ function TCS.SessionManager:DestroySession(session)
 
   -- Full cleanup across all domains
   session:TerminateModes("DESTROY")
+  self:CleanupA2ASpawns(session)
+  self:CleanupA2GSpawns(session)
   _cleanupDomainArtifacts(session, nil)
 
   -- Remove all group bindings
@@ -170,7 +127,7 @@ end
 ---------------------------------------------------------------------
 
 function TCS.SessionManager:LeaveSession(group)
-  local groupName = _getGroupName(group)
+  local groupName = TCS.SessionUtils.GetGroupName(group)
   if not groupName then return end
 
   local session = self.GroupToSession[groupName]
@@ -194,7 +151,7 @@ function TCS.SessionManager:JoinSession(sessionName, group)
     return self:CreateSession(sessionName, group)
   end
 
-  local gname = _getGroupName(group)
+  local gname = TCS.SessionUtils.GetGroupName(group)
   if self.GroupToSession[gname] == s then return s end
 
   self:LeaveSession(group)
@@ -209,7 +166,7 @@ end
 ---------------------------------------------------------------------
 
 function TCS.SessionManager:GetOrCreateSessionForGroup(group, opts)
-  local groupName = _getGroupName(group)
+  local groupName = TCS.SessionUtils.GetGroupName(group)
   if not groupName then return nil end
 
   local session = self.GroupToSession[groupName]
@@ -217,7 +174,25 @@ function TCS.SessionManager:GetOrCreateSessionForGroup(group, opts)
     return session
   end
 
-  local name = (opts and opts.name) or ("SESSION_" .. groupName)
+  local name = (opts and opts.name)
+  if not name then
+     local pName = group:GetPlayerName()
+     if pName then
+        local callsign = TCS.SessionUtils.ParseCallsign(pName)
+        if callsign then
+           -- Ensure uniqueness
+           local baseName = callsign
+           local count = 1
+           while self.Sessions[callsign] do
+             count = count + 1
+             callsign = baseName .. " " .. count
+           end
+           name = callsign
+        end
+     end
+  end
+  
+  name = name or ("SESSION_" .. groupName)
   return self:CreateSession(name, group)
 end
 
@@ -237,7 +212,7 @@ end
 ---------------------------------------------------------------------
 
 function TCS.SessionManager:GetSessionForGroup(group)
-  local groupName = _getGroupName(group)
+  local groupName = TCS.SessionUtils.GetGroupName(group)
   return groupName and self.GroupToSession[groupName] or nil
 end
 
@@ -248,5 +223,53 @@ end
 function TCS.SessionManager:GetAllSessions()
   return self.Sessions
 end
+
+---------------------------------------------------------------------
+-- SESSION MONITOR (Auto-Cleanup)
+---------------------------------------------------------------------
+local SessionMonitor = {}
+function SessionMonitor:onEvent(event)
+  if not event or not event.initiator then return end
+  
+  local id = event.id
+  if id == world.event.S_EVENT_DEAD or 
+     id == world.event.S_EVENT_CRASH or 
+     id == world.event.S_EVENT_EJECTION or 
+     id == world.event.S_EVENT_PLAYER_LEAVE_UNIT then
+     
+     local unit = event.initiator
+     if not unit.getGroup then return end
+     local group = unit:getGroup()
+     if not group then return end
+     
+     local session = TCS.SessionManager:GetSessionForGroup(group)
+     if session then
+        timer.scheduleFunction(function()
+           -- Check if session still exists in manager
+           if not TCS.SessionManager.Sessions[session.Name] then return end
+           
+           local hasActivePlayers = false
+           for gName, _ in pairs(session.Members) do
+              local g = Group.getByName(gName)
+              if g and g:isExist() then
+                 for _, u in ipairs(g:getUnits()) do
+                    if u:isExist() and u:getLife() > 0 and u:getPlayerName() then
+                       hasActivePlayers = true
+                       break
+                    end
+                 end
+              end
+              if hasActivePlayers then break end
+           end
+           
+           if not hasActivePlayers then
+              env.info("TCS(SESSION): Auto-closing session " .. session.Name .. " (No active players).")
+              TCS.SessionManager:DestroySession(session)
+           end
+        end, nil, timer.getTime() + 10)
+     end
+  end
+end
+world.addEventHandler(SessionMonitor)
 
 env.info("TCS(SESSION.MANAGER): ready")

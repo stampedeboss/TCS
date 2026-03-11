@@ -34,6 +34,10 @@ function TCS.Menu.BuildForPlayer(rec)
     TCS.Menu.BuildMAR(rec.Group)
   end
 
+  if TCS.Menu.BuildTasking then
+    TCS.Menu.BuildTasking(rec)
+  end
+
   if TCS.Menu.BuildAdmin then
     TCS.Menu.BuildAdmin(rec)
   end

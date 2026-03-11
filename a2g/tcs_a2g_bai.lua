@@ -21,67 +21,107 @@ env.info("TCS(A2G.BAI): loading")
 
 TCS = TCS or {}
 TCS.A2G = TCS.A2G or {}
+TCS.A2G.BAI = {}
 
 local TAG = "BAI"
+local FORCE = "MECH_INF"
 
 ---------------------------------------------------------------------
--- Helper: Destroy existing BAI assets for session
+-- Core Logic
 ---------------------------------------------------------------------
-local function DestroyExistingBAI(session)
-  if not TCS.A2G.Registry then return end
-  TCS.A2G.Registry:CleanupByTag(session, TAG)
-end
+function TCS.A2G.BAI.Start(session, anchor, echelon, group)
+  -- 1. Standard Scenario Setup
+  anchor = TCS.Scenario.Setup(session, TAG, anchor, group, {Bias=true, domain="A2G"})
+  if not anchor then return end
+  
+  if group then TCS.A2G.Feedback.ToGroup(group, "TCS: Replacing existing BAI tasking", 8) end
 
----------------------------------------------------------------------
--- Entry Point
----------------------------------------------------------------------
-function TCS.A2G.BAI(group, opts)
-  if not group then return end
-  opts = opts or {}
+  echelon = TCS.ResolveDifficulty(session, "LAND", echelon)
 
-  -- Resolve or create session
-  local session = TCS.SessionManager:GetOrCreateSessionForGroup(group)
-  if not session then
-    MESSAGE:New("TCS: Unable to create operational session", 10):ToGroup(group)
-    return
+  local enemySide = coalition.side.RED
+  if group then
+    enemySide = (group:GetCoalition() == coalition.side.RED) and coalition.side.BLUE or coalition.side.RED
+  elseif session and session.Coalition then
+    enemySide = (session.Coalition == coalition.side.RED) and coalition.side.BLUE or coalition.side.RED
   end
-
-  -- Replace semantics
-  DestroyExistingBAI(session)
-  MESSAGE:New("TCS: Replacing existing BAI tasking", 8):ToGroup(group)
-
-  -- Resolve echelon (selectable)
-  local echelon = opts.echelon or TCS.GetEchelonForSession(session)
-
-  -- Placement
-  local anchor, reason = TCS.Placement.Resolve(group:GetUnit(1))
-  if not anchor then
-    MESSAGE:New(
-      "TCS: Unable to establish BAI battlespace\nReason: " .. (reason or "unknown"),
-      12
-    ):ToGroup(group)
-    return
-  end
-
-  -- Bias placement for BAI
-  anchor = TCS.A2G.PlacementBias.Resolve(anchor, TAG)
 
   -- Spawn force
-  local spawned = TCS.A2G.ForceSpawner.Spawn(session, TAG, echelon, anchor)
+  env.info(string.format("TCS(BAI): Invoking ForceSpawner for FORCE='%s', Echelon='%s'", tostring(FORCE), tostring(echelon)))
+  local spawned = TCS.A2G.ForceSpawner.Spawn(session, FORCE, echelon, anchor, {coalition=enemySide})
   if not spawned or #spawned == 0 then
-    MESSAGE:New(
-      "TCS: BAI force generation failed",
-      12
-    ):ToGroup(group)
+    env.error("TCS(BAI): ForceSpawner returned no groups. Check Catalog or Spawner logs.")
+    if group then MsgToGroup(group, "TCS: BAI force generation failed", 12) end
     return
   end
 
+  -- 1. Initial Movement (Dispersal/Patrol)
+  local moveDir = math.random(0, 359)
+  local patrolPt = anchor:Translate(3000, moveDir)
+  for _, g in ipairs(spawned) do
+    if g and g:IsAlive() and g.TaskRouteToVec2 then
+      -- Simple move to disperse
+      g:TaskRouteToVec2(patrolPt:GetVec2(), 20/3.6, "On Road")
+    end
+  end
+
+  -- 2. Monitor for Retreat (35% loss check)
+  local function countStrength(groups)
+    local c = 0
+    for _, g in ipairs(groups or {}) do if g and g:IsAlive() then c = c + g:GetSize() end end
+    return c
+  end
+  local initStr = countStrength(spawned)
+  
+  timer.scheduleFunction(function(_, t)
+    if not session[TAG.."_Drawings"] then return nil end -- Stop if BAI ended/reset
+    local currStr = countStrength(spawned)
+    if initStr > 0 and (currStr / initStr) < 0.65 then
+      session:Broadcast("BAI: Targets breaking contact and retreating!", 15)
+      local retreatPt = anchor:Translate(10000, (moveDir + 180) % 360)
+      trigger.action.smoke(retreatPt:GetVec3(), trigger.smokeColor.Red)
+      for _, g in ipairs(spawned) do if g and g:IsAlive() and g.TaskRouteToVec2 then g:TaskRouteToVec2(retreatPt:GetVec2(), 40/3.6, "On Road") end end
+      return nil
+    end
+    return t + 90
+  end, nil, timer.getTime() + 90)
+
   -- Mandatory A2G AWACS tasking
-  if TCS.A2G.AWACS then
+  if TCS.A2G.AWACS and group then
     TCS.A2G.AWACS:AssignBAI(group, anchor, echelon)
   end
 
-  MESSAGE:New("TCS: BAI battlespace established", 10):ToGroup(group)
+  -- Draw Zone on F10 Map
+  TCS.Scenario.Draw(session, TAG, anchor, echelon, 9000, {1,0.5,0,1}, {1,0.5,0,0.15})
+
+  if group then MsgToGroup(group, "TCS: BAI battlespace established", 10) end
+  env.info("TCS(BAI): Battlespace established successfully.")
+end
+
+---------------------------------------------------------------------
+-- Menu Entry Point
+---------------------------------------------------------------------
+function TCS.A2G.BAI.MenuRequest(group, opts)
+  if not group then return end
+  opts = opts or {}
+
+  local session = TCS.SessionManager:GetOrCreateSessionForGroup(group)
+  if not session then
+    MsgToGroup(group, "TCS: Unable to create operational session", 10)
+    return
+  end
+
+  local echelon = opts.echelon
+  local anchor, reason = TCS.Placement.Resolve(group:GetUnit(1), {
+    domain = "LAND",
+    conditions = { terrain = "FLAT", surface = "OPEN" }
+  })
+  
+  if not anchor then
+    MsgToGroup(group, "TCS: Unable to establish BAI battlespace\nReason: " .. (reason or "unknown"), 12)
+    return
+  end
+
+  TCS.A2G.BAI.Start(session, anchor, echelon, group)
 end
 
 env.info("TCS(A2G.BAI): ready")

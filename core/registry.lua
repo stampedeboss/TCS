@@ -33,8 +33,12 @@ function TCS.Registry:Cleanup(session)
   if not list then return end
 
   for _, obj in ipairs(list) do
-    if obj and obj:IsAlive() then
-      obj:Destroy()
+    if obj and obj.IsAlive and obj:IsAlive() then
+      -- Pre-emptive fix for MOOSE bug where waypoints can be nil on destroy
+      if obj.ClassName == "GROUP" and not obj.waypoints then
+        obj.waypoints = {}
+      end
+      pcall(function() obj:Destroy() end)
     end
   end
 

@@ -35,22 +35,23 @@ end
 local _Bullseye = nil
 function ResolveBullseye()
   if _Bullseye then return _Bullseye end
-  
-  -- Try to find a zone named "BULLSEYE"
-  local zone = ZONE:FindByName("BULLSEYE")
-  if zone then
-    _Bullseye = zone:GetCoordinate()
-    return _Bullseye
-  end
 
-  -- Fallback: Coalition Bullseye (Blue)
+  -- 1. Prefer Coalition Bullseye (Blue)
   local coal = coalition.side.BLUE
   local bull = coalition.getMainRefPoint(coal)
   if bull then
     _Bullseye = COORDINATE:NewFromVec3(bull)
     return _Bullseye
   end
-  
+
+  -- 2. Fallback: Try to find a zone named "BULLSEYE"
+  local zone = ZONE:FindByName("BULLSEYE")
+  if zone then
+    _Bullseye = zone:GetCoordinate()
+    env.warning("TCS(WORLD): Using fallback BULLSEYE trigger zone. Please set a Bullseye in the Mission Editor for the BLUE coalition.")
+    return _Bullseye
+  end
+
   return nil
 end
 
@@ -78,6 +79,21 @@ function GetNearestAirbaseVec2(fromCoord)
   local ab = fromCoord:GetClosestAirbase()
   if not ab then return nil end
   return ab:GetVec2()
+end
+
+-- Global Message Helper
+function MsgToGroup(group, text, duration)
+  env.info("TCS(MSG): " .. tostring(text))
+  if not group then return end
+  local mGroup = group
+  if type(group) == "string" then
+    mGroup = GROUP:FindByName(group)
+  elseif type(group) == "table" and (not group.ClassName or group.ClassName ~= "GROUP") then
+    if group.getName then mGroup = GROUP:FindByName(group:getName()) end
+  end
+  if mGroup and mGroup.ClassName == "GROUP" then
+    MESSAGE:New(text, duration or 10):ToGroup(mGroup)
+  end
 end
 
 env.info("TCS(WORLD): ready")

@@ -1,4 +1,5 @@
 -- TCS_awacs.lua (A2A)
+-- NOTE: Eventually, every tower will eventually needs to be tracking supply against consumption.
 env.info("TCS(AWACS): loading")
 
 local AWACS = nil
@@ -17,7 +18,7 @@ function SetupAwacs()
   env.info(string.format("TCS(AWACS): Config found. Freq: %.3f, Mod: %d, Label: %s", CFG.AWACS.Freq, CFG.AWACS.Mod, CFG.AWACS.Label))
 
   local coal = CFG.Coalition or (TCS.A2A and TCS.A2A.Config and TCS.A2A.Config.Coalition) or coalition.side.BLUE
-  local bull = ResolveBullseye()
+  local bull = TCS.ResolveBullseye()
   if not bull then
     MESSAGE:New("WARNING: No Bullseye found. Please set a Bullseye for the BLUE coalition in the Mission Editor. Bullseye calls will be unavailable.", 15)
       :ToCoalition(coal)
@@ -106,23 +107,23 @@ end
 function TCS.AWACS.DispatchNATO(group, playerUnit, targetCoord, descriptor, tail)
   local CFG = GetCfg()
   if not group or not playerUnit or not playerUnit:IsAlive() or not targetCoord then return end
-  local bull = NATO_BULLSEYE(targetCoord)
+  local bull = TCS.NATO_BULLSEYE(targetCoord)
   local t = tail or "SURFACE"
   local phrase = string.format("%s. %s. %s. %s.", CFG.AWACS.Label, descriptor, bull, t)
   _say(phrase)
-  MsgToGroup(group, CFG.AWACS.Label .. ": " .. descriptor .. " | " .. bull .. " | " .. t, 12)
+  TCS.MsgToGroup(group, CFG.AWACS.Label .. ": " .. descriptor .. " | " .. bull .. " | " .. t, 12)
 end
 
 function TCS.AWACS.ControllerCallBraa(group, playerUnit, refCoord, descriptor, braaText, brevity)
   local CFG = GetCfg()
   if not group or not playerUnit or not playerUnit:IsAlive() or not refCoord then return end
-  local bull = NATO_BULLSEYE(refCoord)
+  local bull = TCS.NATO_BULLSEYE(refCoord)
   local d = descriptor or "BANDIT"
   local b = (braaText and braaText ~= "") and (" " .. braaText .. ".") or ""
   local tail = brevity or "SURFACE"
   local phrase = string.format("%s. %s.%s %s. %s.", CFG.AWACS.Label, d, b, bull, tail)
   _say(phrase)
-  MsgToGroup(group, CFG.AWACS.Label .. ": " .. d .. " | " .. (braaText or "") .. " | " .. bull .. " | " .. tail, 12)
+  TCS.MsgToGroup(group, CFG.AWACS.Label .. ": " .. d .. " | " .. (braaText or "") .. " | " .. bull .. " | " .. tail, 12)
 end
 
 function TCS.AWACS.StartUpdates(group, playerUnit, getTargetCoordFn, descriptor, tailMode)
@@ -139,7 +140,7 @@ function TCS.AWACS.StartUpdates(group, playerUnit, getTargetCoordFn, descriptor,
     if not tc then return end
 
     local tail = "SURFACE"
-    if tailMode == "track" then tail = NATO_TRACK(lastCoord, tc) or "SURFACE" end
+    if tailMode == "track" then tail = TCS.NATO_TRACK(lastCoord, tc) or "SURFACE" end
     TCS.AWACS.DispatchNATO(group, playerUnit, tc, "UPDATE " .. descriptor, tail)
     lastCoord = tc
   end, {}, interval, interval)
@@ -165,7 +166,18 @@ TCS.A2G.AWACS = {}
 function TCS.A2G.AWACS:AssignBAI(group, anchor, echelon)
   local unit = group:GetUnit(1)
   if unit and anchor then
-     TCS.AWACS.DispatchNATO(group, unit, anchor, "BAI TASKING", "ENGAGE")
+     local taskLabel = echelon or "BAI"
+     if taskLabel == "SPAWN" and TCS.Placements and TCS.Placements.IsTerrainAppropriate then
+        -- Determine natural radio label based on surface type at the objective
+        local p = anchor.GetVec3 and anchor:GetVec3() or anchor
+        if TCS.Placements.IsTerrainAppropriate(p, "SEA") then
+            taskLabel = "SEA"
+        else
+            taskLabel = "GROUND"
+        end
+     end
+     local desc = taskLabel .. " TASKING"
+     TCS.AWACS.DispatchNATO(group, unit, anchor, desc, "ENGAGE")
   end
 end
 

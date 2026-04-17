@@ -27,11 +27,11 @@ function TCS.Menu.BuildForPlayer(rec)
   end
 
   if TCS.Menu.BuildSUW then
-    TCS.Menu.BuildSUW(rec.Group)
+    TCS.Menu.BuildSUW(rec)
   end
 
   if TCS.Menu.BuildMAR then
-    TCS.Menu.BuildMAR(rec.Group)
+    TCS.Menu.BuildMAR(rec)
   end
 
   if TCS.Menu.BuildTasking then

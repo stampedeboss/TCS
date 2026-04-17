@@ -1,7 +1,9 @@
 
 env.info("TCS(A2G.FEEDBACK): loading")
 
-TCS.A2G.Feedback = {}
+TCS = TCS or {}
+TCS.A2G = TCS.A2G or {}
+TCS.A2G.Feedback = TCS.A2G.Feedback or {}
 
 function TCS.A2G.Feedback.ToGroup(group, text, duration)
   if not group then return end

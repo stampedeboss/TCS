@@ -4,7 +4,7 @@ env.info("TCS(REGISTRY): loading")
 TCS = TCS or {}
 -- Unified Registry for all domains (A2A, A2G, etc.)
 TCS.Registry = {
-  bySession = {} -- [sessionName] = { objects... }
+  byZone = {} -- [zoneId] = { objects... }
 }
 
 -- Backwards compatibility aliases
@@ -14,11 +14,10 @@ TCS.A2G.Registry = TCS.Registry
 TCS.A2A = TCS.A2A or {}
 TCS.A2A.Registry = TCS.Registry
 
-function TCS.Registry:Register(session, object, tag)
-  if not session or not object then return end
-  local id = session:GetName()
-  self.bySession[id] = self.bySession[id] or {}
-  table.insert(self.bySession[id], object)
+function TCS.Registry:Register(zoneId, object, tag)
+  if not zoneId or not object then return end
+  self.byZone[zoneId] = self.byZone[zoneId] or {}
+  table.insert(self.byZone[zoneId], object)
   
   -- Tagging support for granular cleanup (optional)
   if tag then
@@ -26,10 +25,9 @@ function TCS.Registry:Register(session, object, tag)
   end
 end
 
-function TCS.Registry:Cleanup(session)
-  if not session then return end
-  local id = session:GetName()
-  local list = self.bySession[id]
+function TCS.Registry:Cleanup(zoneId)
+  if not zoneId then return end
+  local list = self.byZone[zoneId]
   if not list then return end
 
   for _, obj in ipairs(list) do
@@ -42,13 +40,12 @@ function TCS.Registry:Cleanup(session)
     end
   end
 
-  self.bySession[id] = nil
+  self.byZone[zoneId] = nil
 end
 
-function TCS.Registry:CleanupByTag(session, tag)
-  if not session or not tag then return end
-  local id = session:GetName()
-  local list = self.bySession[id]
+function TCS.Registry:CleanupByTag(zoneId, tag)
+  if not zoneId or not tag then return end
+  local list = self.byZone[zoneId]
   if not list then return end
 
   local remaining = {}
@@ -59,10 +56,10 @@ function TCS.Registry:CleanupByTag(session, tag)
       table.insert(remaining, obj)
     end
   end
-  self.bySession[id] = remaining
+  self.byZone[zoneId] = remaining
 end
 
-function TCS.Registry:CleanupGroup(session, groupName)
+function TCS.Registry:CleanupGroup(zoneId, groupName)
   -- Placeholder: If we need per-group cleanup later
 end
 

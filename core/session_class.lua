@@ -39,7 +39,7 @@ function TCS.Session:RemoveMember(groupName)
     for m in pairs(self.Members) do
       self.LeadGroupName = m
       local g = GROUP:FindByName(m)
-      if g then MsgToGroup(g, "You are now Session " .. self.Name .. " LEAD.", 10) end
+      if g then TCS.MsgToGroup(g, "You are now Session " .. self.Name .. " LEAD.", 10) end
       break
     end
   end
@@ -52,7 +52,7 @@ end
 function TCS.Session:Broadcast(text, seconds)
   for m in pairs(self.Members) do
     local g = GROUP:FindByName(m)
-    if g then MsgToGroup(g, text, seconds) end
+    if g then TCS.MsgToGroup(g, text, seconds) end
   end
 end
 

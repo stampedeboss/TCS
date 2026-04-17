@@ -16,27 +16,29 @@ function TCS.Menu.BuildA2A(rec)
   end
 
   MENU_GROUP_COMMAND:New(rec.Group, "Intercept", root.A2A, function()
-    if TCS.A2A and TCS.A2A.INTERCEPT and TCS.A2A.INTERCEPT.MenuRequest then
-      TCS.A2A.INTERCEPT.MenuRequest(rec.Group)
+    if TCS.API and TCS.API.CreateIntercept then
+      TCS.API.CreateIntercept({ group = rec.Group })
     end
   end)
 
   MENU_GROUP_COMMAND:New(rec.Group, "CAP", root.A2A, function()
-    if TCS.A2A.CAP then
-      TCS.A2A.CAP:Start(getSessionRec())
+    if TCS.API and TCS.API.CreateCAP then
+      TCS.API.CreateCAP({ group = rec.Group })
     end
   end)
 
   MENU_GROUP_COMMAND:New(rec.Group, "Sweep", root.A2A, function()
-    if TCS.A2A.SWEEP then
-      TCS.A2A.SWEEP:Start(getSessionRec())
+    if TCS.API and TCS.API.CreateSweep then
+      TCS.API.CreateSweep({ group = rec.Group })
     end
   end)
 
   local escort = MENU_GROUP:New(rec.Group, "Escort", root.A2A)
 
   local function startEscort(pkgName)
-    if TCS.A2A.ESCORT then TCS.A2A.ESCORT:Start(getSessionRec(), pkgName) end
+    if TCS.API and TCS.API.CreateEscort then
+      TCS.API.CreateEscort({ group = rec.Group, package = pkgName })
+    end
   end
 
   MENU_GROUP_COMMAND:New(rec.Group, "Random", escort, function()
@@ -65,14 +67,14 @@ function TCS.Menu.BuildA2A(rec)
   MENU_GROUP_COMMAND:New(rec.Group, "Cargo (C-17A)", hvy, function() startEscort("TRANSPORT_C17") end)
 
   MENU_GROUP_COMMAND:New(rec.Group, "BVR Random", root.A2A, function()
-    if TCS.A2A.Training and TCS.A2A.Training.StartBVR then
-      TCS.A2A.Training.StartBVR(rec.Group)
+    if TCS.API and TCS.API.CreateIntercept then
+      TCS.API.CreateIntercept({ group = rec.Group })
     end
   end)
 
   MENU_GROUP_COMMAND:New(rec.Group, "ACM H2H", root.A2A, function()
-    if TCS.A2A.Training and TCS.A2A.Training.StartH2HDogFight then
-      TCS.A2A.Training.StartH2HDogFight(rec.Group)
+    if TCS.API and TCS.API.CreateA2ATraining_H2H then
+      TCS.API.CreateA2ATraining_H2H({ group = rec.Group, mode = "GUNS" })
     end
   end)
 end

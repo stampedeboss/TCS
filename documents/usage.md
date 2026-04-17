@@ -47,6 +47,7 @@ TCS is a dynamic scenario generator that allows you to spawn training and combat
     *   **Convoy Hunt**: Moving column of trucks/armor.
     *   **Moving Armor**: Moving tanks/IFVs.
     *   **Pop-up SAM**: Short-range IR SAMs (Osa/Strela) that activate when you get close.
+    *   **Dynamic SAM**: Doctrinal SAM sites (SA-2, SA-6, etc.) spawned via `TriggerSystemDSAM`.
     *   **Radar Emitter**: AAA Radar (Shilka) for SEAD practice.
     *   *Water*: **Naval SAM** (Albatros corvette).
 *   **Mixed**: Random scatter of various target types.

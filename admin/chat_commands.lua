@@ -206,25 +206,32 @@ function TCS.Admin.OnChatCommand(playerID, msg)
            
            -- Support Assets
            local supportName = farpName .. "_SUP"
-           local offX = coord.x + 40 * math.cos(heading)
-           local offY = coord.z + 40 * math.sin(heading)
+           local offX = coord.x + 30 * math.cos(heading)
+           local offY = coord.z + 30 * math.sin(heading)
            
            local fuel = (side == coalition.side.RED) and "ATMZ-5" or "M978 HEMTT Tanker"
            local ammo = (side == coalition.side.RED) and "Ural-375" or "M818"
-           local cmdType  = (side == coalition.side.RED) and "UAZ-469" or "HMMWV1025"
+           local cmdType  = (side == coalition.side.RED) and "SKP-11" or "M1025 HMMWV"
+           local pwrType  = (side == coalition.side.RED) and "APA-5D" or "M1025 HMMWV"
            
            local groupData = {
              name = supportName,
              task = "Ground Nothing",
              units = {
                [1] = { name=supportName.."_1", type=cmdType, x=offX, y=offY, heading=heading, skill="High" },
-               [2] = { name=supportName.."_2", type=ammo, x=offX+10, y=offY+10, heading=heading, skill="High" },
-               [3] = { name=supportName.."_3", type=fuel, x=offX-10, y=offY+10, heading=heading, skill="High" },
+               [2] = { name=supportName.."_2", type=ammo, x=offX+8, y=offY+8, heading=heading, skill="High" },
+               [3] = { name=supportName.."_3", type=fuel, x=offX-8, y=offY+8, heading=heading, skill="High" },
+               [4] = { name=supportName.."_4", type=pwrType, x=offX, y=offY+15, heading=heading, skill="High" },
              }
            }
            
            TCS.Spawn.GroupFromData(groupData, Group.Category.GROUND, side)
            
+           local _gp = Group.getByName(supportName)
+           if _gp then
+             _gp:getController():setCommand({id = 'SetImmortal', params = {value = true}})
+           end
+
            if net and net.send_chat_to then net.send_chat_to("FARP created at your location.", playerID) end
            env.info("TCS(ADMIN): FARP spawned at " .. farpName)
         end

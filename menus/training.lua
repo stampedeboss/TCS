@@ -16,21 +16,32 @@ function TCS.Menu.BuildTraining(rec)
 
   -- 1a. ACM (Guns Only, Close-in)
   local acm = MENU_GROUP:New(rec.Group, "ACM (Guns Only)", air)
-  MENU_GROUP_COMMAND:New(rec.Group, "H2H (Neutral)", acm, function() if TCS.A2A.Training and TCS.A2A.Training.StartH2HDogFight then TCS.A2A.Training.StartH2HDogFight(rec.Group, "GUNS") end end)
-  MENU_GROUP_COMMAND:New(rec.Group, "Abeam (Offensive)", acm, function() if TCS.A2A.Training and TCS.A2A.Training.StartABEAMDogFight then TCS.A2A.Training.StartABEAMDogFight(rec.Group, "GUNS") end end)
-  MENU_GROUP_COMMAND:New(rec.Group, "Defensive", acm, function() if TCS.A2A.Training and TCS.A2A.Training.StartDefensiveDogFight then TCS.A2A.Training.StartDefensiveDogFight(rec.Group, "GUNS") end end)
+  MENU_GROUP_COMMAND:New(rec.Group, "H2H (Neutral)", acm, function() 
+    if TCS.API and TCS.API.CreateA2ATraining_H2H then TCS.API.CreateA2ATraining_H2H({ group = rec.Group, mode = "GUNS" }) end 
+  end)
+  MENU_GROUP_COMMAND:New(rec.Group, "Abeam (Offensive)", acm, function() 
+    if TCS.API and TCS.API.CreateA2ATraining_Abeam then TCS.API.CreateA2ATraining_Abeam({ group = rec.Group }) end 
+  end)
+  MENU_GROUP_COMMAND:New(rec.Group, "Defensive", acm, function() 
+    if TCS.API and TCS.API.CreateA2ATraining_Defensive then TCS.API.CreateA2ATraining_Defensive({ group = rec.Group }) end 
+  end)
 
   -- 1b. BFM (Missiles Allowed, Maneuvering)
   local bfm = MENU_GROUP:New(rec.Group, "BFM (Missiles)", air)
   -- For now, mapping these to the existing Fox2/BVR logic but framing them as BFM setups
-  MENU_GROUP_COMMAND:New(rec.Group, "Fox 2 (WVR)", bfm, function() if TCS.A2A.Training and TCS.A2A.Training.StartH2HDogFight then TCS.A2A.Training.StartH2HDogFight(rec.Group, "FOX2") end end)
+  MENU_GROUP_COMMAND:New(rec.Group, "Fox 2 (WVR)", bfm, function() 
+    if TCS.API and TCS.API.CreateA2ATraining_H2H then TCS.API.CreateA2ATraining_H2H({ group = rec.Group, mode = "FOX2" }) end 
+  end)
   MENU_GROUP_COMMAND:New(rec.Group, "BVR Intercept", bfm, function() 
-    if TCS.A2A.INTERCEPT and TCS.A2A.INTERCEPT.MenuRequest then TCS.A2A.INTERCEPT.MenuRequest(rec.Group) end 
+    -- BVR training re-uses the standard Intercept logic
+    if TCS.API and TCS.API.CreateIntercept then TCS.API.CreateIntercept({ group = rec.Group }) end 
   end)
   
   -- 1c. Drone
   MENU_GROUP_COMMAND:New(rec.Group, "Target Drone", air, function()
-    if TCS.A2A.Training and TCS.A2A.Training.StartDrone then TCS.A2A.Training.StartDrone(rec.Group) end
+    if TCS.API and TCS.API.CreateA2ATraining_Drone then
+      TCS.API.CreateA2ATraining_Drone({ group = rec.Group })
+    end
   end)
 
   -- =========================================================
@@ -48,8 +59,8 @@ function TCS.Menu.BuildTraining(rec)
   -- Helper function to create the final menu command
   local function addRange(parent, label, configKey)
     MENU_GROUP_COMMAND:New(rec.Group, label, parent, function()
-      if TCS.RANGE and TCS.RANGE.Create then
-        TCS.RANGE.Create(rec.Group:GetName(), rec.Unit:GetName(), configKey)
+      if TCS.API and TCS.API.CreateRange then
+        TCS.API.CreateRange({ group = rec.Group, config = configKey })
       end
     end)
   end
@@ -131,8 +142,8 @@ function TCS.Menu.BuildTraining(rec)
 
   -- == UTILITY ==
   MENU_GROUP_COMMAND:New(rec.Group, "Reset Range", ground, function()
-    if TCS.RANGE and TCS.RANGE.Reset then
-      TCS.RANGE.Reset(rec.Group:GetName())
+    if TCS.API and TCS.API.ResetRange then
+      TCS.API.ResetRange({ group = rec.Group })
     end
   end)
 end

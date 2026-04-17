@@ -49,26 +49,33 @@ function TCS.Menu.BuildRoot(group)
            
            -- Support Assets
            local supportName = farpName .. "_SUP"
-           local offCoord = coord:Translate(40, heading)
+           local offCoord = coord:Translate(30, heading)
            local offX = offCoord.x
            local offY = offCoord.z
            
            local fuel = (side == coalition.side.RED) and "ATMZ-5" or "M978 HEMTT Tanker"
            local ammo = (side == coalition.side.RED) and "Ural-375" or "M818"
-           local cmdType  = (side == coalition.side.RED) and "UAZ-469" or "HMMWV1025"
+           local cmdType  = (side == coalition.side.RED) and "SKP-11" or "M1025 HMMWV"
+           local pwrType  = (side == coalition.side.RED) and "APA-5D" or "M1025 HMMWV"
            
            local groupData = {
              name = supportName,
              task = "Ground Nothing",
              units = {
                [1] = { name=supportName.."_1", type=cmdType, x=offX, y=offY, heading=math.rad(heading), skill="High" },
-               [2] = { name=supportName.."_2", type=ammo, x=offX+10, y=offY+10, heading=math.rad(heading), skill="High" },
-               [3] = { name=supportName.."_3", type=fuel, x=offX-10, y=offY+10, heading=math.rad(heading), skill="High" },
+               [2] = { name=supportName.."_2", type=ammo, x=offX+8, y=offY+8, heading=math.rad(heading), skill="High" },
+               [3] = { name=supportName.."_3", type=fuel, x=offX-8, y=offY+8, heading=math.rad(heading), skill="High" },
+               [4] = { name=supportName.."_4", type=pwrType, x=offX, y=offY+15, heading=math.rad(heading), skill="High" },
              }
            }
            
            TCS.Spawn.GroupFromData(groupData, Group.Category.GROUND, side)
            
+           local _gp = Group.getByName(supportName)
+           if _gp then
+             _gp:getController():setCommand({id = 'SetImmortal', params = {value = true}})
+           end
+
            MESSAGE:New("FARP deployed at your location.", 10):ToGroup(group)
         end
       end

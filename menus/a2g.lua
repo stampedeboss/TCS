@@ -9,47 +9,70 @@ function TCS.Menu.BuildA2G(rec)
   if not root then return end
 
   MENU_GROUP_COMMAND:New(rec.Group, "BAI", root.A2G, function()
-    if TCS.A2G and TCS.A2G.BAI and TCS.A2G.BAI.MenuRequest then
-      TCS.A2G.BAI.MenuRequest(rec.Group)
+    if TCS.API and TCS.API.CreateBAI then
+      local anchor, reason = TCS.Placement.Resolve(rec.Unit, { domain = "LAND", conditions = { terrain = "FLAT", surface = "OPEN" } })
+      if not anchor then
+        TCS.A2G.Feedback.ToGroup(rec.Group, "Unable to establish BAI battlespace: " .. tostring(reason), 10)
+        return
+      end
+      TCS.API.CreateBAI({ group = rec.Group, anchor = anchor })
     end
   end)
 
   MENU_GROUP_COMMAND:New(rec.Group, "CAS", root.A2G, function()
-    if TCS.A2G and TCS.A2G.CAS and TCS.A2G.CAS.MenuRequest then
-      TCS.A2G.CAS.MenuRequest(rec.Group)
+    if TCS.API and TCS.API.CreateCAS then
+      local anchor, reason = TCS.Placement.Resolve(rec.Unit, { domain = "LAND", conditions = { terrain = "FLAT", surface = "OPEN" } })
+      if not anchor then
+        TCS.A2G.Feedback.ToGroup(rec.Group, "Unable to establish CAS battlespace: " .. tostring(reason), 10)
+        return
+      end
+      TCS.API.CreateCAS({ group = rec.Group, anchor = anchor })
     end
   end)
 
   MENU_GROUP_COMMAND:New(rec.Group, "Laser On", root.A2G, function()
-    local session = TCS.SessionManager:GetSessionForGroup(rec.Group)
-    if session and session.A2G_Target and TCS.A2G.JTAC and TCS.A2G.JTAC.LaserOn then
-      TCS.A2G.JTAC.LaserOn(session, session.A2G_Target)
-    else
-      MESSAGE:New("No active target for Laser.", 5):ToGroup(rec.Group)
+    if TCS.API and TCS.API.JTAC_LaserOn then
+      TCS.API.JTAC_LaserOn({ group = rec.Group })
     end
   end)
 
   MENU_GROUP_COMMAND:New(rec.Group, "SEAD", root.A2G, function()
-    if TCS.A2G and TCS.A2G.SEAD and TCS.A2G.SEAD.MenuRequest then
-      TCS.A2G.SEAD.MenuRequest(rec.Group)
+    if TCS.API and TCS.API.CreateSEAD then
+      local anchor, reason = TCS.Placement.Resolve(rec.Unit)
+      if not anchor then
+        TCS.A2G.Feedback.ToGroup(rec.Group, "Unable to establish SEAD battlespace: " .. tostring(reason), 10)
+        return
+      end
+      TCS.API.CreateSEAD({ group = rec.Group, anchor = anchor })
     end
   end)
 
   MENU_GROUP_COMMAND:New(rec.Group, "DEAD", root.A2G, function()
-    if TCS.A2G and TCS.A2G.DEAD and TCS.A2G.DEAD.MenuRequest then
-      TCS.A2G.DEAD.MenuRequest(rec.Group)
+    if TCS.API and TCS.API.CreateDEAD then
+      local anchor, reason = TCS.Placement.Resolve(rec.Unit)
+      if not anchor then
+        TCS.A2G.Feedback.ToGroup(rec.Group, "Unable to establish DEAD battlespace: " .. tostring(reason), 10)
+        return
+      end
+      TCS.API.CreateDEAD({ group = rec.Group, anchor = anchor })
     end
   end)
 
   MENU_GROUP_COMMAND:New(rec.Group, "Strike", root.A2G, function()
-    if TCS.A2G and TCS.A2G.STRIKE and TCS.A2G.STRIKE.MenuRequest then
-      TCS.A2G.STRIKE.MenuRequest(rec.Group)
+    if TCS.API and TCS.API.CreateStrike then
+      local anchor, reason = TCS.Placement.Resolve(rec.Unit)
+      if not anchor then
+        TCS.A2G.Feedback.ToGroup(rec.Group, "Unable to establish Strike battlespace: " .. tostring(reason), 10)
+        return
+      end
+      TCS.API.CreateStrike({ group = rec.Group, anchor = anchor })
     end
   end)
 
   MENU_GROUP_COMMAND:New(rec.Group, "Logistics", root.A2G, function()
-    if TCS.A2G and TCS.A2G.LOGISTICS and TCS.A2G.LOGISTICS.MenuRequest then
-      TCS.A2G.LOGISTICS.MenuRequest(rec.Group)
+    if TCS.API and TCS.API.CreateLogisticsRun then
+      local anchor = TCS.Placement.Resolve(rec.Unit)
+      TCS.API.CreateLogisticsRun({ group = rec.Group, destination = anchor })
     end
   end)
 end

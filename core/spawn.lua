@@ -45,7 +45,7 @@ function TCS.Spawn.Group(typeOrName, coord, opts, categoryName, count)
   opts = opts or {}
   
   -- 1. Try Template (Legacy/Override)
-  local tpl = GROUP:FindByName(typeOrName)
+  local tpl = type(typeOrName) == "string" and GROUP:FindByName(typeOrName)
   if tpl then
     local g = tpl:CopyToCoalition(opts.coalition or coalition.side.RED)
     if coord then g:SetCoordinate(coord) end
@@ -56,7 +56,14 @@ function TCS.Spawn.Group(typeOrName, coord, opts, categoryName, count)
   local coal = opts.coalition or coalition.side.RED
   local countryID = opts.country or GetCountryForCoalition(coal)
   local point = coord and coord:GetVec2() or {x=0, y=0}
-  local name = opts.name or ("TCS_DYN_" .. typeOrName .. "_" .. math.random(100000))
+
+  local typeTag = "MIX"
+  if type(typeOrName) == "string" then 
+    typeTag = typeOrName
+  elseif type(typeOrName) == "table" and typeOrName.id then
+    typeTag = typeOrName.id
+  end
+  local name = opts.name or ("TCS_DYN_" .. (categoryName or typeTag) .. "_" .. math.random(100000))
   local heading = opts.heading and (opts.heading * (math.pi/180)) or (math.random(0, 359) * (math.pi/180))
 
   -- 3. Static Objects (Structures)
@@ -82,7 +89,12 @@ function TCS.Spawn.Group(typeOrName, coord, opts, categoryName, count)
   if domain and (string.find(domain, "SHIP") or string.find(domain, "MAR") or domain == "SEA") then
     catID = Group.Category.SHIP
   elseif domain and (string.find(domain, "AIR") or string.find(domain, "PLANE")) then
-    catID = Group.Category.AIRPLANE
+    -- Detect if unit type is a helicopter
+    if string.find(string.upper(typeOrName), "KA%-50") or string.find(string.upper(typeOrName), "AH%-64") or string.find(string.upper(typeOrName), "MI%-24") or string.find(string.upper(typeOrName), "UH%-60") then
+      catID = Group.Category.HELICOPTER
+    else
+      catID = Group.Category.AIRPLANE
+    end
   end
   
   local groupData = {
@@ -108,15 +120,48 @@ function TCS.Spawn.Group(typeOrName, coord, opts, categoryName, count)
   end
 
   for i, offset in ipairs(formationPoints) do
+    -- Support mixing unit types within a single group spawn.
+    -- If typeOrName is a table (or a catalog entry with unit_types), select a random variation for each unit.
+    local uType = typeOrName
+    if type(typeOrName) == "table" then
+      local pool = typeOrName.unit_types or typeOrName
+      if #pool > 0 then uType = pool[math.random(#pool)] end
+    end
+
     -- Rotate the formation point by the group's heading
     local rotatedX = offset.x * math.cos(heading) - offset.y * math.sin(heading)
     local rotatedY = offset.x * math.sin(heading) + offset.y * math.cos(heading)
     
+    local ux = point.x + rotatedX
+    local uy = point.y + rotatedY
+
+    -- ACTIVE TERRAIN GUARD:
+    -- Validates individual unit placement (Surface, Slope, Urban).
+    if catID == Group.Category.GROUND and TCS.Placements then
+        if not TCS.Placements.IsTerrainAppropriate({x = ux, y = uy}, "LAND") then
+            env.info(string.format("TCS(SPAWN): Unit %d at invalid terrain. Attempting local nudge...", i))
+            local found = false
+            -- Spiral search: check 8 points in increasing radii
+            for radius = 10, 100, 20 do
+                for angle = 0, 315, 45 do
+                    local nx = ux + radius * math.cos(math.rad(angle))
+                    local ny = uy + radius * math.sin(math.rad(angle))
+                    if TCS.Placements.IsTerrainAppropriate({x = nx, y = ny}, "LAND") then
+                        ux, uy = nx, ny
+                        found = true; break
+                    end
+                end
+                if found then break end
+            end
+            if not found then env.warning("TCS(SPAWN): Could not find valid terrain for unit " .. i) end
+        end
+    end
+
     table.insert(groupData.units, {
-      x = point.x + rotatedX,
-      y = point.y + rotatedY,
+      x = ux,
+      y = uy,
       alt = alt,
-      type = typeOrName,
+      type = uType,
       name = name .. "_Unit_" .. i,
       heading = heading,
       skill = opts.skill or "Average",
@@ -199,10 +244,11 @@ function TCS.Spawn.Group(typeOrName, coord, opts, categoryName, count)
 
   coalition.addGroup(countryID, catID, groupData)
   
+  -- Return a MOOSE GROUP object. Using :New() ensures the object is created 
+  -- even if the MOOSE Database hasn't processed the Birth event yet.
   if Group.getByName(name) then
     return GROUP:FindByName(name) or GROUP:New(name)
   end
-  env.error("TCS(SPAWN): Failed to spawn group '" .. tostring(name) .. "' (Group.getByName returned nil)")
   return nil
 end
 

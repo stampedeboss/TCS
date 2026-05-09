@@ -64,17 +64,11 @@ There are no forced resets, but there are **always alternatives**.
 
 ---
 
-## Sessions (The Mission Brain)
 ## Zones & Objectives (The Theater Anchors)
 
 ### Definition
-A **Session** is a map-agnostic, location-independent container for shared intent and experience.
 A **Zone** (or Objective) is a geographic anchor where capabilities are contested. Instead of tying scenarios to individual players or artificial "sessions," TCS anchors state and intent to the theater itself.
 
-Sessions:
-- are not tied to geography
-- do not own zones or coordinates
-- define *who is operating together*, not *where*
 Zones:
 - are persistent locations on the map
 - define *where* a capability is being projected or denied
@@ -84,27 +78,15 @@ Zones:
 
 ---
 
-### Session Properties
-- Owner (creator)
-- Members (groups)
-- Shared communications
-- Shared controllers (JTAC, AWACS – future)
 ### Zone Properties
 - **Anchor**: A specific MOOSE Coordinate, Mission Editor Trigger Zone, or dynamically generated 50x50nm arena.
 - **Active Tasks**: Capabilities currently being contested (e.g., BAI, Strike, CAP).
 - **Shared Consequences**: Success or failure in the zone alters the theater state.
 
-If the owner ceases to exist for **any reason**, the Session collapses.
 **Lifecycle & Garbage Collection**: Active zones persist indefinitely as long as combat events are occurring. If no events occur and there is no player presence in the zone for a configurable duration, the zone collapses and all associated spawns are destroyed.
 
 ---
 
-### Why Sessions Exist
-Sessions provide:
-- shared situational awareness
-- shared communications
-- shared consequences
-- accountability
 ### Why Zones Exist
 By anchoring tasks to Zones rather than players, TCS ensures:
 - **Zero UI Friction**: A flight of four can naturally share an objective simply by flying into it.
@@ -161,9 +143,14 @@ Examples:
 
 ---
 
-## Air and Ground as Competency Tracks
+## The Four Competency Tracks
 
-TCS treats Air and Ground as **parallel competency tracks** that can exist independently or together within a Session.
+TCS treats operations as four **parallel competency tracks** that can exist independently or combine to create complex, cross-domain sessions:
+
+- **Land**: Ground maneuver, infrastructure strike, and surface control.
+- **Air**: Airspace control, sweeps, intercepts, and package escorts.
+- **AirDef**: Area denial, doctrinal SAM sites, and SHORAD networks.
+- **Logistics**: Sustainment, FARP operations, and capability restoration.
 
 ---
 

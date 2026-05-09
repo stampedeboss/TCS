@@ -28,7 +28,7 @@ function TCS.DSAM:Start(rec, samKey, params)
   local group = rec.Group
   local unit = rec.Unit
   local session = rec.Session
-  local difficulty = (params and params.skill) or (session and session.Difficulty) or "G"
+  local difficulty = (params and params.threat) or (session and session.Difficulty) or "H"
 
   local samDef = TCS.Config.A2G.SAMS[samKey]
   if not samDef then
@@ -89,7 +89,7 @@ function TCS.DSAM:Start(rec, samKey, params)
   }
 
   -- 3. Resolve Composition
-  local composition = samDef.compositions and (samDef.compositions[difficulty] or samDef.compositions["G"]) or samDef.composition
+  local composition = samDef.compositions and (samDef.compositions[difficulty] or samDef.compositions["H"]) or samDef.composition
   if not composition then return nil end
 
   local targetNames = {}

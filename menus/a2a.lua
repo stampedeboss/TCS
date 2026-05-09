@@ -8,37 +8,22 @@ function TCS.Menu.BuildA2A(rec)
   local root = TCS.Menu.Groups[g]
   if not root then return end
 
-  -- Helper to ensure session context is passed to modules
-  local function getSessionRec()
-    local session = TCS.SessionManager and TCS.SessionManager:GetOrCreateSessionForGroup(rec.Group)
-    -- Create a shallow copy of rec with Session added
-    return { Group = rec.Group, Unit = rec.Unit, Session = session }
-  end
-
   MENU_GROUP_COMMAND:New(rec.Group, "Intercept", root.A2A, function()
-    if TCS.API and TCS.API.CreateIntercept then
-      TCS.API.CreateIntercept({ group = rec.Group })
-    end
+    if DeployIntercept then DeployIntercept({ group = rec.Group, forceSize = "SQUADRON" }) end
   end)
 
   MENU_GROUP_COMMAND:New(rec.Group, "CAP", root.A2A, function()
-    if TCS.API and TCS.API.CreateCAP then
-      TCS.API.CreateCAP({ group = rec.Group })
-    end
+    if DeployAirPatrol then DeployAirPatrol({ group = rec.Group, forceSize = "SQUADRON" }) end
   end)
 
   MENU_GROUP_COMMAND:New(rec.Group, "Sweep", root.A2A, function()
-    if TCS.API and TCS.API.CreateSweep then
-      TCS.API.CreateSweep({ group = rec.Group })
-    end
+    if DeployAirSweep then DeployAirSweep({ group = rec.Group, forceSize = "SQUADRON" }) end
   end)
 
   local escort = MENU_GROUP:New(rec.Group, "Escort", root.A2A)
 
   local function startEscort(pkgName)
-    if TCS.API and TCS.API.CreateEscort then
-      TCS.API.CreateEscort({ group = rec.Group, package = pkgName })
-    end
+    if DeployEscort then DeployEscort({ group = rec.Group, package = pkgName, forceSize = "SQUADRON" }) end
   end
 
   MENU_GROUP_COMMAND:New(rec.Group, "Random", escort, function()
@@ -67,8 +52,8 @@ function TCS.Menu.BuildA2A(rec)
   MENU_GROUP_COMMAND:New(rec.Group, "Cargo (C-17A)", hvy, function() startEscort("TRANSPORT_C17") end)
 
   MENU_GROUP_COMMAND:New(rec.Group, "BVR Random", root.A2A, function()
-    if TCS.API and TCS.API.CreateIntercept then
-      TCS.API.CreateIntercept({ group = rec.Group })
+    if DeployIntercept then
+      DeployIntercept({ group = rec.Group })
     end
   end)
 

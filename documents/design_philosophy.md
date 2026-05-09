@@ -31,7 +31,7 @@ TCS is built on a "Composite Architecture" model, where different "Architects" a
 
 This is the universal language that allows the system to function.
 
-1.  **The Request**: A trigger (e.g., `TriggerSystemDEAD`) is called.
+1.  **The Request**: A trigger (e.g., `DeployAirDefenses`) is called.
 2.  **The Specialist**: The `DEAD.Architect` is engaged. It knows that a DEAD mission requires a SAM site and a High-Value Target (HVT).
 3.  **Architects Engaging Architects**: The `DEAD.Architect` calls the `AirDef.Architect` and requests a blueprint for a doctrinal SAM site.
 4.  **Blueprint Augmentation**: The `DEAD.Architect` receives the SAM manifest and injects its own HVT component into the center of the layout.
@@ -45,8 +45,8 @@ This pattern ensures that if the `AirDef.Architect` is improved (e.g., with bett
 
 The external API is split into two clear philosophical roles:
 
-*   **The Planners (`TriggerSystemBAI`, `TriggerSystemCAP`, etc.)**: These are high-level, "fire-and-forget" functions. They are designed for F10 menus and simple mission triggers. The mission designer tells the system *what* they want (e.g., a "COMPANY" level BAI), and the Architects handle the complex details of force composition, scaling, and placement.
-*   **The General (`TriggerSystemSpawn`)**: This is the low-level, "direct demand" backdoor. It is designed for mission designers who need absolute control. It bypasses all automated scaling and composition logic, allowing the designer to specify an exact bill of materials (e.g., `composition = { MECH_CORE = 10, INFANTRY = 20 }`).
+*   **The Planners (`DeployGroundForces`, `DeployAirPatrol`, etc.)**: These are high-level, "fire-and-forget" functions. They are designed for F10 menus and simple mission triggers. The mission designer tells the system *what* they want (e.g., a "COMPANY" level BAI), and the Architects handle the complex details of force composition, scaling, and placement.
+*   **The General (`DeployCustom`)**: This is the low-level, "direct demand" backdoor. It is designed for mission designers who need absolute control. It bypasses all automated scaling and composition logic, allowing the designer to specify an exact bill of materials (e.g., `forceSize = { {"ARMOR", 4}, {"INFANTRY", 12} }`).
 
 This dual-API approach provides both ease-of-use for common scenarios and granular control for bespoke, high-stakes encounters. The "General" API was born out of the need for a deterministic testing harness, proving its value in both development and mission design.
 
@@ -98,3 +98,68 @@ This architecture is the foundation of the persistent, "living" world that TCS a
 A core tenet of TCS training ranges is avoiding "training scars." Learning in a sub-standard environment leads to overconfidence and failure in combat.
 *   **Authentic Signatures**: If a pilot is practicing SEAD, they must train against a real, emitting radar system, not a generic static object.
 *   **Architectural Delegation**: When a training range requires a complex, realistic threat (like a pop-up SAM), the Range Architect does not create a simplified fake. It outsources the request to the `AirDef` tower to spawn a full, doctrinally correct combat system with restricted Rules of Engagement (`WEAPON_HOLD`).
+
+---
+
+## 8. Domain Sovereignty & Intent-Based APIs
+
+TCS operates on a strict microservices-style architecture where every domain (Air, Land, Logistics, AirDef, Signals) is a sovereign entity. They communicate via **Intent-Based Requests** rather than micro-managing each other's execution.
+
+### No Unified Catalog
+There is no central catalog shared across the entire framework. 
+*   **Logistics** owns its internal list of transport vehicles and supply pools. 
+*   **Air** owns its internal list of fighters, bombers, and rotary assets. 
+*   **Signals** (the UI layer) has no catalog at all. It does not know what a "C-130J" or an "M978 HEMTT" is. It only knows that a player requested "Fuel."
+
+### The "What, Not How" Rule
+When a request is generated, it specifies the desired outcome (the "What"). The receiving tower interprets the theater conditions and decides the best way to accomplish it (the "How").
+
+**Example: Inter-Domain Collaboration**
+1.  **Signals** captures an F10 menu click to resupply a FARP. It fires an intent: `Logistics, RESUPPLY at [Coordinate]`.
+2.  **Logistics** receives the request. It analyzes the map, sees the FARP is 150 NM away over water, and realizes ground trucks cannot make the journey.
+3.  **Logistics** generates a new intent and hands it to the Air Tower: `Air, AIRLIFT from [Airbase] to [Coordinate]`.
+4.  **Air** receives the intent. It selects a CH-47F from its private catalog, spawns it, and routes it to the destination.
+
+Because of this strict boundary, a developer can completely rewrite the Air module or add new flyable cargo planes, and the Signals and Logistics domains will not require a single line of code to be updated.
+
+### Shared Primitives
+Since domains do not share catalogs, they rely on a strict, simplified set of primitives to communicate:
+*   **Geography:** MOOSE Coordinates, DCS Zone Names, Map Pins.
+*   **Factions:** `coalition.side.RED` / `BLUE`.
+*   **Intent Tags:** Standardized vocabulary (e.g., `RESUPPLY`, `DENY_AIRSPACE`, `STRIKE`, `ESTABLISH_BASE`).
+*   **Threat / Scale:** Basic scaling factors (e.g., "Threat Level G", "Company", "Extreme Threat").
+
+---
+
+## 9. The Two-Tiered API Standard
+
+Every domain exposes its capabilities through two distinct, standardized gateways to separate human-driven chaos from precise mission scripting.
+
+### Tier 1: The Planner (Simplified / Contextual)
+*   **The Input:** High-level intent based heavily on geography and shared primitives. (e.g., "Build a FARP at this coordinate for Blue.")
+*   **The Behavior:** The Domain takes this minimal input and does the heavy lifting. It queries its own catalogs, applies procedural generation, factors in the theater's era and Threat Level, and fills in all the blanks.
+*   **The Use Case:** Dynamic F10 menus, chat commands, and organic gameplay where the player wants the system to react and build the scenario for them.
+
+### Tier 2: The General (Architect / Low-Level)
+*   **The Input:** Absolute, rigid specifications. (e.g., "Place exactly two M978 HEMTT Tankers and one M1025 HMMWV at these exact coordinates, heading 045, with Extreme Threat Level.")
+*   **The Behavior:** Bypasses all procedural generation, randomizers, and catalogs. It executes the precise bill of materials exactly as commanded.
+*   **The Use Case:** Mission Editor scripting, highly specific triggers, bespoke scenario design, or advanced admin interventions.
+
+### Signals: The Translation Layer
+The **Signals** domain is the exclusive owner of human-machine interaction. It is the only domain that understands F10 menus, Chat listeners, and F10 Map Markers.
+
+*   **Context Gathering:** Signals intercepts a player's command, figures out *who* asked, their *coalition*, and their *location*.
+*   **Translation & Routing:** Signals packages that raw context into the standardized Tier 1 data structure and routes it to the appropriate Domain's Planner API.
+*   **Feedback Loop:** Signals receives the result (Success/Failure) from the Domain and translates it back into human feedback via text or Text-To-Speech (TTS).
+
+---
+
+## 10. The Active Zone Context (UI State)
+
+To bridge the gap between the F10 Map and the F10 Radio Menu, the **Signals** domain maintains a stateful "Active Zone" for players and coalitions. The UI remembers the commander's focus.
+
+*   **Pin to Zone:** When a player drops a command pin on the map, Signals executes the request and establishes that coordinate as the "Current Zone."
+*   **Dynamic Menus:** F10 Radio menus are context-aware. If an Active Zone exists, menu actions will offer options to execute against the "Current Zone" or generate a "New Zone."
+*   **Procedural Offsets:** If "New Zone" is selected via the radio menu (without a map pin), Signals generates a new coordinate procedurally based on the player's current location, heading, and standard domain distances (e.g., 15 NM off the nose). 
+
+This allows a commander to drop a single pin, establish it as the "Current Zone," and then rapidly stack multiple cross-domain requests (e.g., Strike, SEAD, and Escort) onto that exact location using just the radio menu, drastically reducing map clutter and UI friction.

@@ -1,0 +1,8 @@
+TCS_LOAD("sea/config/catalog.lua")
+TCS_LOAD("sea/config/catalog_sea_units.lua")
+TCS_LOAD("sea/config/assets.lua")
+TCS_LOAD("sea/config/menu_config.lua")
+TCS_LOAD("sea/config/naval_ops.lua")
+TCS_LOAD("sea/sea.lua")
+TCS_LOAD("sea/ambient.lua")
+TCS_LOAD("sea/architect.lua")

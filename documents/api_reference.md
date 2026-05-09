@@ -21,18 +21,18 @@ Deploys a mobile ground force to support a BAI or CAS mission. Passing a `friend
 *   `duration` (number, optional): Lifetime of the task in seconds.
 *   `respawnDelay` (number, optional): Delay in seconds before recreation (default 300).
 *   `reinforce` (boolean, optional): If `true`, allows AI reinforcements from the nearest base when routed.
-*   `skill` (string, optional): Difficulty Tier override (`"A"`, `"G"`, `"H"`, `"X"`).
+*   `threat` (string, optional): Threat Tier override (`"H"`, `"X"`).
 *   `friendlyCoalition` (number, optional): If provided, spawns an opposing friendly force engaged in combat with the enemy.
 *   `ingressHdg` (number, optional): The bearing from the objective to the spawn location (e.g., 0 spawns units to the North).
 *   `ingressArc` (number, optional): Total width of the arc in degrees. Defaults to 180 if `ingressHdg` is provided.
 
 ### `DeployFacility`
 Deploys fixed infrastructure and defending units for a Strike mission.
-**Parameters Table Keys**: (Same as `DeployGroundForces` except `reinforce` is not supported). Supports `skill`.
+**Parameters Table Keys**: (Same as `DeployGroundForces` except `reinforce` is not supported). Supports `threat`.
 
 ### `DeployAirDefenses`
-Deploys a Short Range Air Defense (SHORAD) network (AAA/IR/Mobile Radar) to support SEAD/DEAD. For Strategic/Heavy SAMs, use `DeploySAM`.
-**Parameters Table Keys**: (Same as `DeployGroundForces`). Default Echelon: `"PLATOON"`. Supports `skill`.
+Deploys a Short Range Air Defense (SHORAD) network (AAA/IR/Mobile Radar) to support SEAD/DEAD. For Long Range / Fixed SAMs, use `DeploySAM`.
+**Parameters Table Keys**: (Same as `DeployGroundForces`). Default Echelon: `"PLATOON"`. Supports `threat`.
 
 ---
 
@@ -41,11 +41,11 @@ Creates persistent air entities relative to geographical zones. Bandits will aut
 
 ### `DeployAirPatrol`
 Deploys a Combat Air Patrol over a zone.
-**Parameters Table Keys**: `anchor`, `echelon` (Default: `"SQUADRON"`), `coalition`, `respawn`, `duration`, `respawnDelay`, `skill`.
+**Parameters Table Keys**: `anchor`, `echelon` (Default: `"SQUADRON"`), `coalition`, `respawn`, `duration`, `respawnDelay`, `threat`.
 
 ### `DeployAirSweep`
 Deploys an offensive air sweep through a zone.
-**Parameters Table Keys**: (Same as `DeployAirPatrol`). Supports `skill`.
+**Parameters Table Keys**: (Same as `DeployAirPatrol`). Supports `threat`.
 
 ---
 
@@ -60,17 +60,17 @@ Spawns a specialized SAM site (e.g., SA-2, SA-6, Patriot) using directional spaw
 *   `echelon` (string): Defaults to `"PLATOON"`.
 *   `minNm` / `maxNm` (numbers): Spawn radius constraints.
 *   `coalition` (number): Side to spawn on.
-*   `skill` (string): Difficulty Tier override (`"A"`, `"G"`, `"H"`, `"X"`).
+*   `threat` (string): Threat Tier override (`"H"`, `"X"`).
 *   `silent` (number, optional): Distance in NM to activate radar. If -1 or not provided, radar is active on spawn.
 *   `ingressHdg` (number, optional): Overrides the tactical arrival direction.
 *   `ingressArc` (number, optional): Breadth of the spawn randomization arc (default 180).
 
 #### Mobile vs. Fixed Behavior
-The system distinguishes between **Strategic (Fixed)** and **Tactical (Mobile)** sites:
-*   **Fixed Sites**: (SA-2, SA-3, SA-5, SA-10, Patriot) remain at their spawn location until destroyed.
-*   **Mobile Sites**: (SA-6, SA-11, SA-8, SA-15, SA-19, SA-22) possess the **Leapfrog** capability. 
+The system distinguishes between **Fixed** and **Mobile** sites:
+*   **Fixed Sites**: (SA-2, SA-3, SA-5, SA-10, Patriot, Hawk, NASAMS) remain at their spawn location until destroyed.
+*   **Mobile Sites**: (SA-6, SA-11, SA-8, SA-15, SA-19, SA-22, Avenger, Linebacker) possess the **Leapfrog** capability. 
 
-If a mobile SAM is active during a mission victory (e.g., a BAI task in the same session is completed), the mobile SAM will automatically re-deploy to the objective center to establish a new defensive perimeter.
+If a mobile SAM is active during a mission victory (e.g., a Ground Force task in the same Zone is completed), the mobile SAM will automatically re-deploy to the objective center to establish a new defensive perimeter.
 
 #### Directional Spawning Logic
 For SAM sites, the system calculates a tactical placement to simulate a defensive screen:
@@ -79,12 +79,12 @@ For SAM sites, the system calculates a tactical placement to simulate a defensiv
 3.  **Orientation**: The entire SAM site is rotated to face back towards the objective/ingress path (180° opposite the arrival vector), ensuring radars and launchers are properly oriented toward the expected threat.
 4.  **Manual Override**: Using `ingressHdg` forces the site to spawn at a specific bearing from the objective (e.g., `ingressHdg = 180` spawns the SAM South of the objective, regardless of airbase locations).
 
-#### Skill & AI Behavior Impact
-The `skill` parameter (Tier A, G, H, X) directly influences how SAMs and SEAD threats operate:
+#### Threat & AI Behavior Impact
+The `threat` parameter (Tier H, X) directly influences how SAMs and SEAD threats operate:
 *   **Reaction Time**: Higher tiers have larger `maxDist` engagement values in their radar tasks, causing them to lock and fire much sooner.
-*   **ROE (Rules of Engagement)**: Tier A units use "Open Fire" logic (hesitation), while Tiers G-X use "Weapon Free".
-*   **Evasion**: Tier A units use "Passive Defense". Tier X units use "Bypass and Escape", making them much harder to hit with anti-radiation missiles or cluster bombs as they will actively maneuver to survive.
-*   **AI Skill**: Maps to DCS internal levels: Average (A), Good (G), High (H), and Excellent (X).
+*   **ROE (Rules of Engagement)**: Tiers H-X use "Weapon Free".
+*   **Evasion**: Tier X units use "Bypass and Escape", making them much harder to hit with anti-radiation missiles or cluster bombs as they will actively maneuver to survive.
+*   **AI Skill**: Maps to DCS internal levels: High (H), and Excellent (X).
 
 ---
 
@@ -93,15 +93,15 @@ Creates maritime scenarios ranging from pure combatants to ambient civilian traf
 
 ### `DeployBattleGroup`
 Spawns a Naval Battle Group / Surface Action Group (SAG) of warships in tactical formations (Diamond/Line Ahead) that advance on an objective.
-**Parameters Table Keys**: `anchor`, `echelon`, `minNm`, `maxNm`, `coalition`, `skill`, `ingressHdg`, `ingressArc`.
+**Parameters Table Keys**: `anchor`, `echelon`, `minNm`, `maxNm`, `coalition`, `threat`, `ingressHdg`, `ingressArc`.
 
 ### `DeployConvoy`
 Spawns a linear convoy of civilian cargo and transport ships **led by a Naval combatant**. 
-**Parameters Table Keys**: `anchor`, `count` (Default: 4), `minNm`, `maxNm`, `coalition`, `skill`, `ingressHdg`, `ingressArc`.
+**Parameters Table Keys**: `anchor`, `count` (Default: 4), `minNm`, `maxNm`, `coalition`, `threat`, `ingressHdg`, `ingressArc`.
 
 ### `DeployTraffic`
 Scatters ambient civilian ships over a large radius, **interspersed with Naval combatants** hiding among the traffic. Excellent for visual identification and ROE training.
-**Parameters Table Keys**: `anchor`, `count` (Default: 8), `minNm`, `maxNm`, `coalition`, `skill`, `ingressHdg`, `ingressArc`.
+**Parameters Table Keys**: `anchor`, `count` (Default: 8), `minNm`, `maxNm`, `coalition`, `threat`, `ingressHdg`, `ingressArc`.
 
 ### `DeployCivilian`
 Scatters purely neutral, unarmed civilian traffic. Their ROE is forced to `WEAPON_HOLD` and they belong to `coalition.side.NEUTRAL`.
@@ -116,7 +116,7 @@ This API bypasses the standard `Forces` weights, allowing for exact unit counts 
 **Parameters Table Keys**:
 *   `composition` (table): A key-value table of catalog categories and counts. *Example*: `{ MECH_CORE = 10, INFANTRY = 20, SAM = 2 }`
 *   `anchor` (string|table): Objective zone or coordinate.
-*   `skill` (number|table): Maps 1–4 to Tiers (A, G, H, X). Can be a single number or a table of tiers (e.g., `{"A", "G"}`).
+*   `threat` (string|table): Maps to Threat Tiers (H, X). Can be a single string or a table of tiers (e.g., `{"H", "X"}`).
 *   `minNm` / `maxNm` (numbers): Spawn radius constraints.
 *   `coalition` (number): Side to spawn on.
 *   `ingressHdg` (number, optional): The bearing from the objective to the spawn location.
@@ -137,7 +137,7 @@ If the `anchor` provided to any function is a **Trigger Zone**, you can set thes
 | `reinforce` | Boolean | `true`/`false` to enable/disable QRF reinforcements. |
 | `ingresshdg` | Number | Bearing from objective to spawn location. |
 | `ingressarc` | Number | Total width of the spawn arrival arc. Defaults to 180 if `ingresshdg` is set. |
-| `skill` | String | Sets the Difficulty Tier for the zone (`A`, `G`, `H`, `X`). |
+| `threat` | String | Sets the Threat Tier for the zone (`H`, `X`). |
 
 ---
 

@@ -31,7 +31,7 @@ For Ground operations (BAI, CAS, SEAD, Strike), scaling is determined by the **B
     *   `COMPANY`: 3.0x Base
     *   `BATTALION`: 9.0x Base
     *   `BRIGADE`: 27.0x Base
-3.  **Absolute Counts**: If using `TriggerSystemSpawn` with a specific composition table, the system uses `absoluteCount`, meaning the multipliers are ignored and the exact numbers provided are spawned.
+3.  **Absolute Counts**: If using `DeployCustom` with a specific composition array, the multipliers are ignored and the exact unit counts provided are spawned.
 
 ---
 
@@ -65,14 +65,30 @@ When a task is started without an explicit echelon (e.g., via the F10 menu), the
 
 ---
 
-## 5. Overriding Scaling
+## 5. The Deploy API & Smart Parameters
 
-### Via API
-You can bypass automatic scaling by passing an explicit `echelon` string in the parameters table:
+The TCS API uses `Deploy` functions (e.g., `DeployGroundForces`, `DeploySAM`, `DeployCustom`) that accept a flexible, human-readable parameters table.
+
+### The `forceSize` Smart Parameter
+Instead of memorizing separate keys for echelons, unit types, and exact counts, you can pass them all through the `forceSize` property:
+
+*   **Standard Echelon (String)**: Scales the doctrinal blueprint.
 ```lua
-TriggerSystemBAI({
-    anchor = "Point_Alpha",
-    echelon = "BRIGADE" -- Forces maximum size regardless of session difficulty
+DeployGroundForces({ anchor = "Point_Alpha", forceSize = "BRIGADE" })
+```
+*   **Specific System (String)**: Bypasses random selection and requests a specific unit.
+```lua
+DeploySAM({ anchor = "Target_Zone", forceSize = "SA-10" })
+```
+*   **System + Skill Tier (Tuple)**: Specifies both the system and the difficulty tier.
+```lua
+DeploySAM({ anchor = "Target_Zone", forceSize = {"SA-15", "X"} })
+```
+*   **Custom Platoon Layout (Array of Tuples)**: Used with `DeployCustom` to specify exact categories and counts.
+```lua
+DeployCustom({
+    anchor = "Defense_Line",
+    forceSize = { {"ARMOR", 4}, {"INFANTRY", 12} }
 })
 ```
 

@@ -74,6 +74,4 @@ function TCS.Menu.BuildAdmin(rec)
     end)
   end
   end
-
-  if TCS.Menu.BuildTasking then TCS.Menu.BuildTasking(rec) end
 end

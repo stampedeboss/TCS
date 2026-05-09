@@ -1,0 +1,7 @@
+TCS_LOAD("cic/zone_manager.lua")
+TCS_LOAD("cic/tripwire.lua")
+TCS_LOAD("cic/awacs_math.lua")
+TCS_LOAD("cic/awacs.lua")
+TCS_LOAD("cic/controller.lua")
+TCS_LOAD("cic/director.lua")
+TCS_LOAD("cic/jtac.lua")

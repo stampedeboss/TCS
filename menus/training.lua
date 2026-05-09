@@ -34,7 +34,7 @@ function TCS.Menu.BuildTraining(rec)
   end)
   MENU_GROUP_COMMAND:New(rec.Group, "BVR Intercept", bfm, function() 
     -- BVR training re-uses the standard Intercept logic
-    if TCS.API and TCS.API.CreateIntercept then TCS.API.CreateIntercept({ group = rec.Group }) end 
+    if DeployIntercept then DeployIntercept({ group = rec.Group }) end 
   end)
   
   -- 1c. Drone
@@ -59,8 +59,8 @@ function TCS.Menu.BuildTraining(rec)
   -- Helper function to create the final menu command
   local function addRange(parent, label, configKey)
     MENU_GROUP_COMMAND:New(rec.Group, label, parent, function()
-      if TCS.API and TCS.API.CreateRange then
-        TCS.API.CreateRange({ group = rec.Group, config = configKey })
+      if DeployRange then
+        DeployRange({ group = rec.Group, rangeKey = configKey })
       end
     end)
   end
@@ -112,12 +112,14 @@ function TCS.Menu.BuildTraining(rec)
   -- 2e. SAM Sites
   if not isOverWater then
     local m_sam_sites = MENU_GROUP:New(rec.Group, "SAM Site", ground)
-    local sam_config = TCS.Config.A2G.SAMS or {}
     local sorted_sams = {}
-    for k, v in pairs(sam_config) do table.insert(sorted_sams, {key=k, label=v.label}) end
+    
+    local catalog = TCS.AirDef and TCS.AirDef.Config and TCS.AirDef.Config.Catalog or {}
+    for k, _ in pairs(catalog) do table.insert(sorted_sams, k) end
+    
     table.sort(sorted_sams, function(a,b)
-      local numA = tonumber(string.match(a.key, "SA%-(%d+)"))
-      local numB = tonumber(string.match(b.key, "SA%-(%d+)"))
+      local numA = tonumber(string.match(a, "SA%-(%d+)"))
+      local numB = tonumber(string.match(b, "SA%-(%d+)"))
       if numA and numB then
         return numA < numB
       elseif numA then
@@ -125,11 +127,14 @@ function TCS.Menu.BuildTraining(rec)
       elseif numB then
         return false
       else
-        return a.label < b.label
+        return a < b
       end
     end)
-    for _, sam in ipairs(sorted_sams) do
-      addRange(m_sam_sites, sam.label, "SAM_SITE:" .. sam.key)
+    
+    for _, samKey in ipairs(sorted_sams) do
+      MENU_GROUP_COMMAND:New(rec.Group, samKey, m_sam_sites, function()
+        if DeploySAM then DeploySAM({ group = rec.Group, forceSize = samKey }) end
+      end)
     end
   end
 
@@ -142,8 +147,8 @@ function TCS.Menu.BuildTraining(rec)
 
   -- == UTILITY ==
   MENU_GROUP_COMMAND:New(rec.Group, "Reset Range", ground, function()
-    if TCS.API and TCS.API.ResetRange then
-      TCS.API.ResetRange({ group = rec.Group })
+    if TCS.CIC and TCS.CIC.ZoneManager then
+      -- Implement safe zone cleanup or leave as placeholder
     end
   end)
 end
